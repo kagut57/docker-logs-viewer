@@ -47,6 +47,9 @@ load_config() {
   HTTPS_PORT=${HTTPS_PORT:-443}
   SKIP_DNS_CHECK=${SKIP_DNS_CHECK:-false}
   MAX_LINES=${MAX_LINES:-100000}
+  MAX_STREAMS=${MAX_STREAMS:-20}
+  LOGIN=${LOGIN:-false}
+  ALLOWED_IPS=${ALLOWED_IPS:-}
   HOST=${HOST:-}
   DOMAIN=${DOMAIN#http://}
   DOMAIN=${DOMAIN#https://}
@@ -56,6 +59,8 @@ load_config() {
   valid_port "$PORT" || die "PORT must be 1-65535 (got '$PORT')"
   valid_port "$HTTPS_PORT" || die "HTTPS_PORT must be 1-65535 (got '$HTTPS_PORT')"
   [[ "$MAX_LINES" =~ ^[0-9]+$ ]] || die "MAX_LINES must be a number"
+  [[ "$MAX_STREAMS" =~ ^[0-9]+$ ]] || die "MAX_STREAMS must be a number"
+  [[ "$ALLOWED_IPS" =~ ^[0-9A-Fa-f.:/,\ ]*$ ]] || die "ALLOWED_IPS may only contain IPs/CIDRs separated by commas"
   if [ -n "$DOMAIN" ] && ! [[ "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then
     die "DOMAIN must be a hostname like logs.example.com (got '$DOMAIN')"
   fi
@@ -63,7 +68,9 @@ load_config() {
     die "PORT $PORT clashes with the nginx ports used for the domain. Pick another PORT."
   fi
 
-  if [ -z "$AUTH_PASS" ]; then
+  if [ "$LOGIN" != "true" ]; then
+    AUTH_PASS=
+  elif [ -z "$AUTH_PASS" ]; then
     AUTH_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true)
     if grep -q '^AUTH_PASS=' "$CONFIG"; then
       sed -i "s|^AUTH_PASS=.*|AUTH_PASS=$AUTH_PASS|" "$CONFIG"
@@ -212,6 +219,17 @@ Environment="HOST=$(systemd_escape "$HOST")"
 Environment="AUTH_USER=$(systemd_escape "$AUTH_USER")"
 Environment="AUTH_PASS=$(systemd_escape "$AUTH_PASS")"
 Environment="MAX_LINES=$MAX_LINES"
+Environment="MAX_STREAMS=$MAX_STREAMS"
+Environment="ALLOWED_IPS=$ALLOWED_IPS"
+Environment="TRUST_PROXY=$([ -n "$DOMAIN" ] && echo true || echo false)"
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
 Restart=always
 RestartSec=2
 User=root
@@ -417,7 +435,16 @@ cmd_start() {
   echo
   say "Docker Logs Viewer is running"
   echo "    URL:   $(public_url)"
-  echo "    Login: $AUTH_USER / $AUTH_PASS"
+  if [ -n "$AUTH_PASS" ]; then
+    echo "    Login: $AUTH_USER / $AUTH_PASS"
+  else
+    echo "    Login: off (LOGIN=false)"
+    if [ -z "$ALLOWED_IPS" ]; then
+      warn "Anyone who knows this URL can read all container logs. Set ALLOWED_IPS or LOGIN=true in config.env to restrict it."
+    else
+      echo "    Allowed IPs: $ALLOWED_IPS"
+    fi
+  fi
   echo "    Edit config.env and re-run 'sudo bash start.sh' to apply changes."
 }
 

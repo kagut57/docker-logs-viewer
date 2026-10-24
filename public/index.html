@@ -133,7 +133,8 @@ async function loadList() {
     for (const c of list) {
       const d = document.createElement('div');
       d.className = 'c' + (c.name === current ? ' sel' : '');
-      d.innerHTML = `<div class="n"><span class="dot ${c.state}"></span><span></span></div><div class="s"></div>`;
+      d.innerHTML = '<div class="n"><span class="dot"></span><span></span></div><div class="s"></div>';
+      if (/^[a-z]+$/.test(c.state)) d.querySelector('.dot').classList.add(c.state);
       d.querySelector('.n span:last-child').textContent = c.name;
       d.querySelector('.s').textContent = `${c.image} · ${c.status}`;
       d.onclick = () => { select(c.name); $('side').classList.remove('open'); };

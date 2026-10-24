@@ -14,11 +14,11 @@ sudo bash start.sh
 
 On first run `start.sh` will:
 
-- create `config.env` from `config.example.env` and generate a random password
+- create `config.env` from `config.example.env`
 - install Node.js 20 if Node 18+ is missing
 - install and start a systemd service (`docker-logs-viewer`) that restarts on boot
 - open the port in `ufw` / `firewalld` if one is active
-- print the URL and login
+- print the URL
 
 Your cloud provider's firewall or security group still has to allow the port.
 
@@ -29,7 +29,9 @@ Edit `config.env`, then run `sudo bash start.sh` again to apply it.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `6060` | Port the app listens on |
-| `AUTH_USER` / `AUTH_PASS` | `admin` / random | Login for the web UI |
+| `LOGIN` | `false` | Require a username/password (`AUTH_USER` / `AUTH_PASS`, random if empty) |
+| `ALLOWED_IPS` | empty | Only allow these IPs / CIDR ranges (comma separated) |
+| `MAX_STREAMS` | `20` | Max simultaneous log streams |
 | `DOMAIN` | empty | Custom domain, e.g. `logs.example.com` |
 | `CERTBOT_EMAIL` | empty | Email for Let's Encrypt expiry notices |
 | `DOMAIN_HTTPS` | `true` | Set `false` to serve the domain over plain HTTP |
@@ -85,5 +87,23 @@ git pull && sudo bash start.sh
 
 ## Security
 
-- The app runs as root so it can read the Docker socket. Keep `AUTH_PASS` strong, and put the app behind HTTPS (custom domain) when you can.
-- `config.env` holds your password. It is git-ignored and `chmod 600`.
+**There is no login by default.** Anyone who has the URL can read the logs of every container, and logs often contain tokens, passwords or database URLs. To restrict access, use one or both of these:
+
+- `ALLOWED_IPS=203.0.113.7,198.51.100.0/24`: only these IPs or ranges can open the site; everyone else gets 403. This also works behind the nginx/domain setup, which checks the real client IP.
+- `LOGIN=true`: asks for a username and password (a random password is generated if `AUTH_PASS` is empty).
+
+Built-in protections:
+
+- Read-only: the app only runs `docker ps` and `docker logs`. Every request except GET/HEAD gets 405.
+- Container names are strictly validated and passed to Docker without a shell, so no command or flag injection is possible.
+- Only `/` and `/api/*` are served, so files like `server.js`, `config.env` and `.git` can't be read (no path traversal).
+- Log lines and container names are shown as plain text. A strict Content-Security-Policy allows only the page's own scripts (by hash), so XSS payloads in logs can't run.
+- Clickjacking protection (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), `nosniff` and `no-referrer` headers.
+- At most `MAX_STREAMS` (20) log streams can be open at once, so nobody can flood the server with `docker logs` processes.
+- The systemd service runs with `NoNewPrivileges` and a read-only `/usr`, `/boot` and `/etc`.
+
+It still runs as root to reach the Docker socket, so don't expose it publicly without `ALLOWED_IPS` or `LOGIN=true`.
+
+### Security test
+
+`npm test` runs 41 checks against a fake Docker (no real containers needed): auth on/off, IP allowlist and spoofed headers, path traversal, command/flag injection, write methods, security headers, CSP and the stream-flood limit.

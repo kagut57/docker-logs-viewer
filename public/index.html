@@ -49,7 +49,7 @@
   #log.wrap { white-space:pre-wrap; word-break:break-all; }
   .ln { padding:0 12px; border-left:3px solid transparent; }
   .ln:hover { background:var(--hover); }
-  .ln.err { color:var(--err); }
+  .ln.err, .ln.lv-error, .ln.lv-fatal { color:var(--err); }
   .ln.lv-error, .ln.lv-fatal { background:var(--errbg); border-left-color:var(--err); }
   .ln.lv-warn { background:var(--warnbg); border-left-color:var(--warn); }
   .ln.sys { color:var(--mute); font-style:italic; }
@@ -145,7 +145,10 @@ async function loadList() {
 
 const ANSI_RE = /\x1b\[([0-9;]*)m/g;
 const ANY_ESC_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
-const LEVEL_RE = /\b(FATAL|PANIC|CRIT(?:ICAL)?|EMERG|ALERT|ERROR|ERR|EXCEPTION|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE)\b|\blevel=(fatal|panic|error|err|warn(?:ing)?|info|debug|trace)\b|"level"\s*:\s*"(fatal|panic|error|err|warn(?:ing)?|info|debug|trace)"/i;
+const LEVEL_RE = /\b(FATAL|PANIC|CRIT(?:ICAL)?|EMERG|ALERT|ERROR|ERR|EXCEPTION|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE)\b|\b[Ll][Ee][Vv][Ee][Ll]=["']?([A-Za-z]+)|"level"\s*:\s*"([A-Za-z]+)"|^\s*\[?([Ee]rror|[Ww]arn(?:ing)?|[Ii]nfo|[Dd]ebug|[Ff]atal)\]?:?\s/;
+const TRACE_START_RE = /^(Traceback \(most recent call last\)|Exception in thread |panic: |Caused by: |Unhandled ?(?:exception|rejection))/i;
+const CONT_RE = /^(\s+\S|\s*\^+\s*$|Traceback |During handling of the above exception|The above exception was the direct cause|[\w.]*(Error|Exception|Exit|Interrupt|Warning)\b|[A-Za-z_]\w*(?:\.\w+)*\.[A-Z]\w*:\s|Caused by:|goroutine \d+ )/;
+let lastLv = null;
 const LEVEL_MAP = { fatal:'fatal', panic:'fatal', crit:'fatal', critical:'fatal', emerg:'fatal', alert:'fatal', error:'error', err:'error', exception:'error', warn:'warn', warning:'warn', info:'info', notice:'info', debug:'debug', trace:'trace' };
 const RANK = { trace:0, debug:0, info:1, warn:2, error:3, fatal:3 };
 const TOKEN_RE = /(https?:\/\/[^\s"'<>]+)|("(?:[^"\\]|\\.)*")|\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b|(?<=\s|^|")([1-5]\d\d)(?=\s|$|")|\b([A-Za-z_][\w.-]*)(?==)|\b(\d+(?:\.\d+)?(?:ms|s|µs|us|ns|kb|mb|gb|b)?)\b/gi;
@@ -153,7 +156,7 @@ const TOKEN_RE = /(https?:\/\/[^\s"'<>]+)|("(?:[^"\\]|\\.)*")|\b(GET|POST|PUT|PA
 function levelOf(text) {
   const m = LEVEL_RE.exec(text);
   if (!m) return null;
-  return LEVEL_MAP[(m[1] || m[2] || m[3]).toLowerCase()] || null;
+  return LEVEL_MAP[(m[1] || m[2] || m[3] || m[4]).toLowerCase()] || null;
 }
 
 function parseAnsi(raw) {
@@ -247,6 +250,12 @@ function prepare(item) {
   item.ansi = parseAnsi(raw);
   item.text = item.ansi ? item.ansi.map((x) => x.t).join('') : raw;
   item.lv = item.s ? null : levelOf(item.text);
+  if (!item.s) {
+    if (item.lv) lastLv = item.lv;
+    else if (lastLv && CONT_RE.test(item.text)) item.lv = lastLv;
+    else if (item.text.trim()) lastLv = TRACE_START_RE.test(item.text) ? 'error' : null;
+    if (!item.lv && TRACE_START_RE.test(item.text)) item.lv = 'error';
+  }
   item.search = (item.ts ? item.ts + ' ' : '') + item.text.toLowerCase();
   return item;
 }
@@ -254,7 +263,7 @@ function prepare(item) {
 function visible(item) {
   if (query && !item.search.includes(query)) return false;
   if (minLevel && !item.s) {
-    const r = item.lv ? RANK[item.lv] : (item.e ? RANK.error : -1);
+    const r = item.lv ? RANK[item.lv] : -1;
     if (r < RANK[minLevel]) return false;
   }
   return true;
@@ -266,7 +275,7 @@ function render(item) {
   let cls = 'ln';
   if (item.s) cls += ' sys';
   else if (colors && item.lv) cls += ' lv-' + item.lv;
-  if (item.e && !(colors && item.ansi)) cls += ' err';
+  if (item.s && item.e) cls += ' err';
   el.className = cls;
   if (item.ts) {
     const ts = document.createElement('span');
@@ -344,7 +353,7 @@ function redraw() {
 }
 
 function reset() {
-  lines = []; pending = []; logEl.textContent = ''; updateCount();
+  lines = []; pending = []; lastLv = null; logEl.textContent = ''; updateCount();
 }
 
 function select(name) {

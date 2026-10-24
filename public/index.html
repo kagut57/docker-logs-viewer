@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docker Logs</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('dlv-theme') || 'dark'; } catch (e) {}</script>
+<style>
+  :root, [data-theme="dark"] {
+    --bg:#0d1117; --panel:#161b22; --hover:#1c232c; --sel:#1f2a37; --line:#30363d; --fg:#e6edf3; --mute:#8b949e; --acc:#58a6ff;
+    --err:#ff7b72; --warn:#e3b341; --info:#58a6ff; --debug:#a5a5a5; --ok:#3fb950; --str:#a5d6ff; --num:#79c0ff; --url:#d2a8ff; --key:#ffa657;
+    --errbg:rgba(248,81,73,.08); --warnbg:rgba(210,153,34,.07); --mark:#9e6a03; --markfg:#fff;
+    --a0:#484f58; --a1:#ff7b72; --a2:#3fb950; --a3:#d29922; --a4:#58a6ff; --a5:#bc8cff; --a6:#39c5cf; --a7:#b1bac4;
+    --a8:#6e7681; --a9:#ffa198; --a10:#56d364; --a11:#e3b341; --a12:#79c0ff; --a13:#d2a8ff; --a14:#56d4dd; --a15:#ffffff;
+  }
+  [data-theme="black"] {
+    --bg:#000; --panel:#0a0a0a; --hover:#151515; --sel:#1a1a1a; --line:#262626; --fg:#f0f0f0; --mute:#8a8a8a; --acc:#ffffff;
+    --err:#ff5c5c; --warn:#ffcc33; --info:#5cb8ff; --debug:#9a9a9a; --ok:#4ade80; --str:#9fd8ff; --num:#8cc8ff; --url:#d8b4fe; --key:#ffb86b;
+    --errbg:rgba(255,60,60,.10); --warnbg:rgba(255,204,51,.07); --mark:#fff; --markfg:#000;
+    --a0:#4d4d4d; --a1:#ff5c5c; --a2:#4ade80; --a3:#ffcc33; --a4:#5cb8ff; --a5:#c084fc; --a6:#22d3ee; --a7:#d4d4d4;
+    --a8:#737373; --a9:#ff8a8a; --a10:#86efac; --a11:#fde047; --a12:#93c5fd; --a13:#d8b4fe; --a14:#67e8f9; --a15:#ffffff;
+  }
+  [data-theme="white"] {
+    --bg:#ffffff; --panel:#f6f8fa; --hover:#eef1f4; --sel:#e7eef8; --line:#d0d7de; --fg:#1f2328; --mute:#656d76; --acc:#0969da;
+    --err:#cf222e; --warn:#9a6700; --info:#0969da; --debug:#6e7781; --ok:#1a7f37; --str:#0a3069; --num:#0550ae; --url:#8250df; --key:#953800;
+    --errbg:rgba(207,34,46,.06); --warnbg:rgba(154,103,0,.06); --mark:#fff8c5; --markfg:#1f2328;
+    --a0:#24292f; --a1:#cf222e; --a2:#1a7f37; --a3:#9a6700; --a4:#0969da; --a5:#8250df; --a6:#1b7c83; --a7:#6e7781;
+    --a8:#57606a; --a9:#a40e26; --a10:#2da44e; --a11:#bf8700; --a12:#218bff; --a13:#a475f9; --a14:#3192aa; --a15:#8c959f;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px system-ui,sans-serif; height:100dvh; display:flex; }
+  #side { width:280px; background:var(--panel); border-right:1px solid var(--line); overflow:auto; flex-shrink:0; }
+  #side h1 { font-size:14px; margin:0; padding:14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  #side h1 svg { width:18px; height:18px; fill:var(--acc); }
+  .c { padding:10px 14px; border-bottom:1px solid var(--line); cursor:pointer; border-left:3px solid transparent; }
+  .c:hover { background:var(--hover); } .c.sel { background:var(--sel); border-left-color:var(--acc); }
+  .c .n { font-weight:600; display:flex; align-items:center; gap:8px; }
+  .c .s { color:var(--mute); font-size:12px; margin-top:2px; word-break:break-all; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--a8); flex-shrink:0; }
+  .dot.running { background:var(--ok); } .dot.exited, .dot.dead { background:var(--err); } .dot.restarting, .dot.paused { background:var(--warn); }
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #bar { display:flex; gap:8px; padding:8px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; align-items:center; }
+  #bar input, #bar select, #bar button { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  #bar input { flex:1; min-width:120px; } #bar button { cursor:pointer; } #bar button:hover, #bar select:hover { border-color:var(--acc); }
+  #bar button.on { border-color:var(--acc); color:var(--acc); }
+  #title { color:var(--mute); padding:0 4px; font-weight:600; }
+  #count { color:var(--mute); font-size:12px; padding:0 4px; white-space:nowrap; }
+  #log { flex:1; overflow:auto; padding:8px 0; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; }
+  #log.wrap { white-space:pre-wrap; word-break:break-all; }
+  .ln { padding:0 12px; border-left:3px solid transparent; }
+  .ln:hover { background:var(--hover); }
+  .ln.err { color:var(--err); }
+  .ln.lv-error, .ln.lv-fatal { background:var(--errbg); border-left-color:var(--err); }
+  .ln.lv-warn { background:var(--warnbg); border-left-color:var(--warn); }
+  .ln.sys { color:var(--mute); font-style:italic; }
+  .ts { color:var(--mute); }
+  .lv { font-weight:700; }
+  .lv.error, .lv.fatal { color:var(--err); } .lv.warn { color:var(--warn); } .lv.info { color:var(--info); } .lv.debug, .lv.trace { color:var(--debug); }
+  .t-str { color:var(--str); } .t-num { color:var(--num); } .t-url { color:var(--url); } .t-key { color:var(--key); }
+  .t-meth { color:var(--a5); font-weight:600; } .t-s2 { color:var(--ok); font-weight:600; } .t-s3 { color:var(--a6); font-weight:600; }
+  .t-s4 { color:var(--warn); font-weight:600; } .t-s5 { color:var(--err); font-weight:600; }
+  .b { font-weight:700; } .d { opacity:.7; } .i { font-style:italic; } .u { text-decoration:underline; }
+  mark { background:var(--mark); color:var(--markfg); border-radius:2px; }
+  #menu { display:none; }
+  #shade { display:none; }
+  @media (max-width:700px) {
+    body { font-size:15px; }
+    #side { position:fixed; top:0; bottom:0; left:0; width:min(320px,85vw); z-index:6; transform:translateX(-100%); transition:transform .2s; box-shadow:0 0 24px rgba(0,0,0,.4); }
+    #side.open { transform:none; }
+    #shade { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:5; }
+    #side.open + #shade { display:block; }
+    .c { padding:14px 16px; }
+    #menu { display:inline-flex; align-items:center; }
+    #bar { gap:6px; padding:6px; }
+    #bar input, #bar select, #bar button { padding:8px 10px; min-height:38px; }
+    #bar input { order:10; flex:1 1 100%; font-size:16px; }
+    #title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #count { order:11; flex-basis:100%; padding:0 2px; }
+    #count:empty { display:none; }
+    #tools { order:9; display:flex; gap:6px; overflow-x:auto; flex:1 1 100%; scrollbar-width:none; }
+    #tools::-webkit-scrollbar { display:none; }
+    #tools > * { flex-shrink:0; }
+    #log { font-size:11.5px; }
+    .ln { padding:0 8px; }
+    .ts-date, .ts-frac { display:none; }
+  }
+  #tools { display:contents; }
+  @media (max-width:700px) { #tools { display:flex; } }
+</style>
+</head>
+<body>
+<div id="side"><h1><svg viewBox="0 0 24 24"><path d="M13 4h3v3h-3zM9 4h3v3H9zM9 8h3v3H9zM5 8h3v3H5zM13 8h3v3h-3zM5 12h3v3H5zM9 12h3v3H9zM13 12h3v3h-3zM17 12h3v3h-3zM22.6 11.2c-.6-.4-1.9-.6-2.9-.4-.1-1-.7-1.9-1.6-2.6l-.5-.4-.4.5c-.5.8-.7 2-.6 2.9.1.4.2.8.4 1.1-.6.3-1.6.4-1.8.4H1.1l-.1.5c-.1 1.6.1 3.2.8 4.6.8 1.4 2 2.5 3.6 3 1.9.6 3.8.6 5.7.3 1.6-.3 3.2-.9 4.5-1.9 1.2-.9 2.1-2.1 2.8-3.4h.2c1.2 0 2.4-.4 3.1-1.5l.3-.5-.4-.3z"/></svg>Containers</h1><div id="list"></div></div>
+<div id="shade"></div>
+<div id="main">
+  <div id="bar">
+    <button id="menu" aria-label="Containers">☰</button>
+    <span id="title">Select a container</span>
+    <input id="q" placeholder="Filter logs…" type="search" autocomplete="off">
+    <div id="tools">
+      <select id="tail" title="Lines to load"><option>100</option><option selected>200</option><option>1000</option><option>5000</option><option>20000</option><option value="all">all</option></select>
+      <select id="level" title="Minimum level"><option value="">All levels</option><option value="error">Errors</option><option value="warn">Warnings+</option><option value="info">Info+</option></select>
+      <select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select>
+      <button id="color" class="on">Colors</button>
+      <button id="wrap">Wrap</button>
+      <button id="pause">Pause scroll</button>
+      <button id="clear">Clear</button>
+      <button id="dl">Download</button>
+    </div>
+    <span id="count"></span>
+  </div>
+  <div id="log"></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('dlv-' + k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('dlv-' + k, v); } catch (e) {} },
+};
+let MAX = 100000;
+let current = null, es = null, lines = [], pending = [], follow = true, scheduled = false, query = '';
+let colors = store.get('colors', '1') === '1';
+let minLevel = store.get('level', '');
+
+fetch('/api/config').then((r) => r.json()).then((c) => { if (c.maxLines) MAX = c.maxLines; }).catch(() => {});
+
+async function loadList() {
+  try {
+    const r = await fetch('/api/containers');
+    const list = await r.json();
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    $('list').innerHTML = '';
+    for (const c of list) {
+      const d = document.createElement('div');
+      d.className = 'c' + (c.name === current ? ' sel' : '');
+      d.innerHTML = `<div class="n"><span class="dot ${c.state}"></span><span></span></div><div class="s"></div>`;
+      d.querySelector('.n span:last-child').textContent = c.name;
+      d.querySelector('.s').textContent = `${c.image} · ${c.status}`;
+      d.onclick = () => { select(c.name); $('side').classList.remove('open'); };
+      $('list').appendChild(d);
+    }
+  } catch (e) {}
+}
+
+const ANSI_RE = /\x1b\[([0-9;]*)m/g;
+const ANY_ESC_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const LEVEL_RE = /\b(FATAL|PANIC|CRIT(?:ICAL)?|EMERG|ALERT|ERROR|ERR|EXCEPTION|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE)\b|\blevel=(fatal|panic|error|err|warn(?:ing)?|info|debug|trace)\b|"level"\s*:\s*"(fatal|panic|error|err|warn(?:ing)?|info|debug|trace)"/i;
+const LEVEL_MAP = { fatal:'fatal', panic:'fatal', crit:'fatal', critical:'fatal', emerg:'fatal', alert:'fatal', error:'error', err:'error', exception:'error', warn:'warn', warning:'warn', info:'info', notice:'info', debug:'debug', trace:'trace' };
+const RANK = { trace:0, debug:0, info:1, warn:2, error:3, fatal:3 };
+const TOKEN_RE = /(https?:\/\/[^\s"'<>]+)|("(?:[^"\\]|\\.)*")|\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b|(?<=\s|^|")([1-5]\d\d)(?=\s|$|")|\b([A-Za-z_][\w.-]*)(?==)|\b(\d+(?:\.\d+)?(?:ms|s|µs|us|ns|kb|mb|gb|b)?)\b/gi;
+
+function levelOf(text) {
+  const m = LEVEL_RE.exec(text);
+  if (!m) return null;
+  return LEVEL_MAP[(m[1] || m[2] || m[3]).toLowerCase()] || null;
+}
+
+function parseAnsi(raw) {
+  if (raw.indexOf('\x1b') === -1) return null;
+  const segs = [];
+  let st = {}, last = 0, m;
+  ANSI_RE.lastIndex = 0;
+  while ((m = ANSI_RE.exec(raw))) {
+    if (m.index > last) segs.push({ t: raw.slice(last, m.index), s: { ...st } });
+    const codes = m[1] === '' ? [0] : m[1].split(';').map(Number);
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) st = {};
+      else if (c === 1) st.b = 1; else if (c === 2) st.d = 1; else if (c === 3) st.i = 1; else if (c === 4) st.u = 1;
+      else if (c === 22) { delete st.b; delete st.d; } else if (c === 23) delete st.i; else if (c === 24) delete st.u;
+      else if (c >= 30 && c <= 37) st.fg = 'var(--a' + (c - 30) + ')';
+      else if (c >= 90 && c <= 97) st.fg = 'var(--a' + (c - 82) + ')';
+      else if (c === 39) delete st.fg;
+      else if (c === 38 && codes[i + 1] === 5) { st.fg = xterm(codes[i + 2]); i += 2; }
+      else if (c === 38 && codes[i + 1] === 2) { st.fg = `rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`; i += 4; }
+      else if (c === 48 && (codes[i + 1] === 5 || codes[i + 1] === 2)) i += codes[i + 1] === 5 ? 2 : 4;
+    }
+    last = ANSI_RE.lastIndex;
+  }
+  if (last < raw.length) segs.push({ t: raw.slice(last), s: { ...st } });
+  return segs.map((x) => ({ t: x.t.replace(ANY_ESC_RE, ''), s: x.s }));
+}
+
+function xterm(n) {
+  if (n < 16) return 'var(--a' + n + ')';
+  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
+  n -= 16;
+  const f = (x) => (x ? x * 40 + 55 : 0);
+  return `rgb(${f(Math.floor(n / 36))},${f(Math.floor(n / 6) % 6)},${f(n % 6)})`;
+}
+
+function appendText(el, text) {
+  if (!query) { el.appendChild(document.createTextNode(text)); return; }
+  const low = text.toLowerCase();
+  let i = 0, j;
+  while ((j = low.indexOf(query, i)) !== -1) {
+    if (j > i) el.appendChild(document.createTextNode(text.slice(i, j)));
+    const m = document.createElement('mark');
+    m.textContent = text.slice(j, j + query.length);
+    el.appendChild(m);
+    i = j + query.length;
+  }
+  if (i < text.length) el.appendChild(document.createTextNode(text.slice(i)));
+}
+
+function span(parent, cls, text) {
+  const s = document.createElement('span');
+  s.className = cls;
+  appendText(s, text);
+  parent.appendChild(s);
+}
+
+function appendTokens(el, text) {
+  let last = 0, m;
+  TOKEN_RE.lastIndex = 0;
+  while ((m = TOKEN_RE.exec(text))) {
+    if (m[0] === '') { TOKEN_RE.lastIndex++; continue; }
+    if (m.index > last) appendLevels(el, text.slice(last, m.index));
+    if (m[1]) span(el, 't-url', m[1]);
+    else if (m[2]) span(el, 't-str', m[2]);
+    else if (m[3]) span(el, 't-meth', m[3]);
+    else if (m[4]) span(el, 't-s' + m[4][0], m[4]);
+    else if (m[5]) span(el, 't-key', m[5]);
+    else span(el, 't-num', m[6]);
+    last = TOKEN_RE.lastIndex;
+  }
+  if (last < text.length) appendLevels(el, text.slice(last));
+}
+
+const LEVEL_WORD_RE = /\b(FATAL|PANIC|CRIT(?:ICAL)?|EMERG|ERROR|ERR|EXCEPTION|WARN(?:ING)?|INFO|NOTICE|DEBUG|TRACE)\b/g;
+function appendLevels(el, text) {
+  let last = 0, m;
+  LEVEL_WORD_RE.lastIndex = 0;
+  while ((m = LEVEL_WORD_RE.exec(text))) {
+    if (m.index > last) appendText(el, text.slice(last, m.index));
+    span(el, 'lv ' + LEVEL_MAP[m[1].toLowerCase()], m[1]);
+    last = LEVEL_WORD_RE.lastIndex;
+  }
+  if (last < text.length) appendText(el, text.slice(last));
+}
+
+function prepare(item) {
+  let raw = item.l;
+  const sp = raw.indexOf(' ');
+  if (sp > 20 && /^\d{4}-\d\d-\d\dT/.test(raw)) { item.ts = raw.slice(0, sp); raw = raw.slice(sp + 1); }
+  item.ansi = parseAnsi(raw);
+  item.text = item.ansi ? item.ansi.map((x) => x.t).join('') : raw;
+  item.lv = item.s ? null : levelOf(item.text);
+  item.search = (item.ts ? item.ts + ' ' : '') + item.text.toLowerCase();
+  return item;
+}
+
+function visible(item) {
+  if (query && !item.search.includes(query)) return false;
+  if (minLevel && !item.s) {
+    const r = item.lv ? RANK[item.lv] : (item.e ? RANK.error : -1);
+    if (r < RANK[minLevel]) return false;
+  }
+  return true;
+}
+
+function render(item) {
+  if (!visible(item)) return null;
+  const el = document.createElement('div');
+  let cls = 'ln';
+  if (item.s) cls += ' sys';
+  else if (colors && item.lv) cls += ' lv-' + item.lv;
+  if (item.e && !(colors && item.ansi)) cls += ' err';
+  el.className = cls;
+  if (item.ts) {
+    const ts = document.createElement('span');
+    ts.className = 'ts';
+    ts.title = item.ts;
+    const m = /^(\d{4}-\d\d-\d\dT)(\d\d:\d\d:\d\d)(.*)$/.exec(item.ts);
+    if (m) span(ts, 'ts-date', m[1]), span(ts, '', m[2]), span(ts, 'ts-frac', m[3]);
+    else appendText(ts, item.ts);
+    el.appendChild(ts);
+    el.appendChild(document.createTextNode(' '));
+  }
+  if (!colors || item.s) appendText(el, item.text);
+  else if (item.ansi) {
+    for (const seg of item.ansi) {
+      if (!seg.t) continue;
+      const s = document.createElement('span');
+      const c = Object.keys(seg.s).filter((k) => k.length === 1);
+      if (c.length) s.className = c.join(' ');
+      if (seg.s.fg) s.style.color = seg.s.fg;
+      appendText(s, seg.t);
+      el.appendChild(s);
+    }
+  } else appendTokens(el, item.text);
+  return el;
+}
+
+function updateCount() {
+  $('count').textContent = lines.length ? `${lines.length.toLocaleString()} lines` + (lines.length >= MAX ? ' (oldest dropped)' : '') : '';
+}
+
+function trim() {
+  const excess = lines.length - MAX;
+  if (excess <= 0) return;
+  const removed = lines.splice(0, excess);
+  for (const it of removed) if (it.el) it.el.remove();
+}
+
+const CHUNK = 4000;
+
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  setTimeout(flush, 30);
+}
+
+function flush() {
+  scheduled = false;
+  if (!pending.length) return;
+  const batch = pending.length > CHUNK ? pending.splice(0, CHUNK) : pending;
+  if (batch === pending) pending = [];
+  else schedule();
+  const frag = document.createDocumentFragment();
+  for (const it of batch) {
+    lines.push(it);
+    it.el = render(it);
+    if (it.el) frag.appendChild(it.el);
+  }
+  logEl.appendChild(frag);
+  trim();
+  updateCount();
+  if (follow) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function add(item) {
+  pending.push(prepare(item));
+  schedule();
+}
+
+function redraw() {
+  logEl.textContent = '';
+  const frag = document.createDocumentFragment();
+  for (const it of lines) { it.el = render(it); if (it.el) frag.appendChild(it.el); }
+  logEl.appendChild(frag);
+  if (follow) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function reset() {
+  lines = []; pending = []; logEl.textContent = ''; updateCount();
+}
+
+function select(name) {
+  current = name; reset(); $('title').textContent = name;
+  if (es) es.close();
+  const src = new EventSource(`/api/logs?name=${encodeURIComponent(name)}&tail=${$('tail').value}`);
+  es = src;
+  src.onmessage = (m) => {
+    if (es !== src) return;
+    for (const [l, e] of JSON.parse(m.data)) add({ l, e: !!e });
+  };
+  src.addEventListener('end', () => { src.close(); add({ l: '— stream ended —', s: true }); });
+  src.addEventListener('fail', (m) => { src.close(); add({ l: '— error: ' + JSON.parse(m.data) + ' —', e: true, s: true }); });
+  loadList();
+}
+
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  $('theme').value = t;
+  store.set('theme', t);
+}
+
+let qTimer = null;
+$('q').oninput = () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { query = $('q').value.toLowerCase(); redraw(); }, 150);
+};
+$('tail').value = store.get('tail', '200');
+$('tail').onchange = () => { store.set('tail', $('tail').value); if (current) select(current); };
+$('level').value = minLevel;
+$('level').onchange = () => { minLevel = $('level').value; store.set('level', minLevel); redraw(); };
+setTheme(document.documentElement.dataset.theme);
+$('theme').onchange = () => setTheme($('theme').value);
+$('color').classList.toggle('on', colors);
+$('color').onclick = () => { colors = !colors; store.set('colors', colors ? '1' : '0'); $('color').classList.toggle('on', colors); redraw(); };
+if (store.get('wrap', matchMedia('(max-width:700px)').matches ? '1' : '0') === '1') { logEl.classList.add('wrap'); $('wrap').classList.add('on'); }
+$('wrap').onclick = () => { const on = logEl.classList.toggle('wrap'); $('wrap').classList.toggle('on', on); store.set('wrap', on ? '1' : '0'); };
+$('pause').onclick = () => { follow = !follow; $('pause').textContent = follow ? 'Pause scroll' : 'Resume scroll'; $('pause').classList.toggle('on', !follow); if (follow) logEl.scrollTop = logEl.scrollHeight; };
+$('clear').onclick = reset;
+$('menu').onclick = () => $('side').classList.toggle('open');
+$('shade').onclick = () => $('side').classList.remove('open');
+if (matchMedia('(max-width:700px)').matches && !current) $('side').classList.add('open');
+$('dl').onclick = () => {
+  const blob = new Blob([lines.filter((x) => !x.s).map((x) => (x.ts ? x.ts + ' ' : '') + x.text).join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (current || 'logs') + '.log'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+loadList(); setInterval(loadList, 5000);
+</script>
+</body>
+</html>

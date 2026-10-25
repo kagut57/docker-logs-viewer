@@ -45,7 +45,10 @@
   #bar button.on { border-color:var(--acc); color:var(--acc); }
   #title { color:var(--mute); padding:0 4px; font-weight:600; }
   #count { color:var(--mute); font-size:12px; padding:0 4px; white-space:nowrap; }
-  #log { flex:1; overflow:auto; padding:8px 0; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; }
+  #logwrap { flex:1; min-height:0; position:relative; display:flex; }
+  #newer { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:2; background:var(--acc); color:var(--bg); border:0; border-radius:999px; padding:6px 14px; font:600 12px system-ui,sans-serif; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.35); }
+  #newer[hidden] { display:none; }
+  #log { flex:1; min-width:0; overflow:auto; overflow-anchor:none; -webkit-overflow-scrolling:touch; padding:8px 0; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; }
   #log.wrap { white-space:pre-wrap; word-break:break-all; }
   .ln { padding:0 12px; border-left:3px solid transparent; }
   .ln:hover { background:var(--hover); }
@@ -102,13 +105,12 @@
       <select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select>
       <button id="color" class="on">Colors</button>
       <button id="wrap">Wrap</button>
-      <button id="pause">Pause scroll</button>
       <button id="clear">Clear</button>
       <button id="dl">Download</button>
     </div>
     <span id="count"></span>
   </div>
-  <div id="log"></div>
+  <div id="logwrap"><div id="log"></div><button id="newer" hidden></button></div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -118,7 +120,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('dlv-' + k, v); } catch (e) {} },
 };
 let MAX = 100000;
-let current = null, es = null, lines = [], pending = [], follow = true, scheduled = false, query = '';
+let current = null, es = null, lines = [], pending = [], scheduled = false, query = '', listKey = '';
 let colors = store.get('colors', '1') === '1';
 let minLevel = store.get('level', '');
 
@@ -129,6 +131,9 @@ async function loadList() {
     const r = await fetch('/api/containers');
     const list = await r.json();
     list.sort((a, b) => a.name.localeCompare(b.name));
+    const key = JSON.stringify(list) + '\n' + current;
+    if (key === listKey) return;
+    listKey = key;
     $('list').innerHTML = '';
     for (const c of list) {
       const d = document.createElement('div');
@@ -306,14 +311,55 @@ function updateCount() {
   $('count').textContent = lines.length ? `${lines.length.toLocaleString()} lines` + (lines.length >= MAX ? ' (oldest dropped)' : '') : '';
 }
 
+const CHUNK = 4000;
+const PAGE = 300;
+const DOM_CAP = 1500;
+let seq = 0, cursor = 0, unseen = 0;
+
+const atTop = () => logEl.scrollTop < 8;
+const baseSeq = () => (lines.length ? lines[0].seq : seq);
+
 function trim() {
   const excess = lines.length - MAX;
   if (excess <= 0) return;
   const removed = lines.splice(0, excess);
-  for (const it of removed) if (it.el) it.el.remove();
+  for (const it of removed) if (it.el) { it.el.remove(); it.el = null; }
+  if (cursor < baseSeq()) cursor = baseSeq();
 }
 
-const CHUNK = 4000;
+function renderEl(it) {
+  it.el = render(it);
+  if (it.el) it.el._seq = it.seq;
+  return it.el;
+}
+
+function appendOlder(n) {
+  const frag = document.createDocumentFragment();
+  let i = cursor - baseSeq() - 1, added = 0;
+  for (; i >= 0 && added < n; i--) if (renderEl(lines[i])) { frag.appendChild(lines[i].el); added++; }
+  cursor = baseSeq() + i + 1;
+  logEl.appendChild(frag);
+}
+
+function capDom() {
+  if (logEl.childElementCount <= DOM_CAP) return;
+  while (logEl.childElementCount > DOM_CAP - PAGE) logEl.lastElementChild.remove();
+  cursor = logEl.lastElementChild._seq;
+}
+
+function setUnseen(n) {
+  unseen = n;
+  $('newer').hidden = !n;
+  $('newer').textContent = `↑ ${n.toLocaleString()} new line${n === 1 ? '' : 's'}`;
+}
+
+function rebuild() {
+  logEl.textContent = '';
+  cursor = seq;
+  appendOlder(PAGE);
+  logEl.scrollTop = 0;
+  setUnseen(0);
+}
 
 function schedule() {
   if (scheduled) return;
@@ -327,34 +373,43 @@ function flush() {
   const batch = pending.length > CHUNK ? pending.splice(0, CHUNK) : pending;
   if (batch === pending) pending = [];
   else schedule();
-  const frag = document.createDocumentFragment();
-  for (const it of batch) {
+  const items = [];
+  for (const raw of batch) {
+    const it = prepare(raw);
+    it.seq = seq++;
     lines.push(it);
-    it.el = render(it);
-    if (it.el) frag.appendChild(it.el);
+    items.push(it);
   }
-  logEl.appendChild(frag);
   trim();
   updateCount();
-  if (follow) logEl.scrollTop = logEl.scrollHeight;
+  if (!atTop()) {
+    setUnseen(unseen + items.filter(visible).length);
+    return;
+  }
+  if (items.length >= PAGE || unseen) { rebuild(); return; }
+  const frag = document.createDocumentFragment();
+  for (let i = items.length - 1; i >= 0; i--) if (items[i].seq >= baseSeq() && renderEl(items[i])) frag.appendChild(items[i].el);
+  logEl.prepend(frag);
+  capDom();
 }
 
 function add(item) {
-  pending.push(prepare(item));
+  pending.push(item);
   schedule();
 }
 
 function redraw() {
-  logEl.textContent = '';
-  const frag = document.createDocumentFragment();
-  for (const it of lines) { it.el = render(it); if (it.el) frag.appendChild(it.el); }
-  logEl.appendChild(frag);
-  if (follow) logEl.scrollTop = logEl.scrollHeight;
+  rebuild();
 }
 
 function reset() {
-  lines = []; pending = []; lastLv = null; logEl.textContent = ''; updateCount();
+  lines = []; pending = []; lastLv = null; cursor = seq; logEl.textContent = ''; setUnseen(0); updateCount();
 }
+
+logEl.addEventListener('scroll', () => {
+  if (unseen && atTop()) rebuild();
+  else if (cursor > baseSeq() && logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 600) appendOlder(PAGE);
+}, { passive: true });
 
 function select(name) {
   current = name; reset(); $('title').textContent = name;
@@ -391,7 +446,7 @@ $('color').classList.toggle('on', colors);
 $('color').onclick = () => { colors = !colors; store.set('colors', colors ? '1' : '0'); $('color').classList.toggle('on', colors); redraw(); };
 if (store.get('wrap', matchMedia('(max-width:700px)').matches ? '1' : '0') === '1') { logEl.classList.add('wrap'); $('wrap').classList.add('on'); }
 $('wrap').onclick = () => { const on = logEl.classList.toggle('wrap'); $('wrap').classList.toggle('on', on); store.set('wrap', on ? '1' : '0'); };
-$('pause').onclick = () => { follow = !follow; $('pause').textContent = follow ? 'Pause scroll' : 'Resume scroll'; $('pause').classList.toggle('on', !follow); if (follow) logEl.scrollTop = logEl.scrollHeight; };
+$('newer').onclick = rebuild;
 $('clear').onclick = reset;
 $('menu').onclick = () => $('side').classList.toggle('open');
 $('shade').onclick = () => $('side').classList.remove('open');

@@ -82,7 +82,9 @@ git pull && sudo bash start.sh
 - Level colouring (ERROR / WARN / INFO / DEBUG), ANSI colour support, and highlighting for HTTP methods, status codes, URLs, numbers and `key=value` pairs
 - Filter box with match highlighting, plus a minimum-level filter
 - Dark, black (AMOLED) and white themes, saved per browser
-- Wrap, pause auto-scroll, clear, and download the loaded logs
+- Newest logs on top; older lines load as you scroll down (only a few hundred rows are drawn at a time, so even "all" stays smooth)
+- A "new lines" button appears when new logs arrive while you are scrolled down
+- Wrap, clear, and download the loaded logs
 - Mobile layout with a slide-out container list
 
 ## Security

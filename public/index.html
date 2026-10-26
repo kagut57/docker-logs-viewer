@@ -65,8 +65,30 @@
   .t-s4 { color:var(--warn); font-weight:600; } .t-s5 { color:var(--err); font-weight:600; }
   .b { font-weight:700; } .d { opacity:.7; } .i { font-style:italic; } .u { text-decoration:underline; }
   mark { background:var(--mark); color:var(--markfg); border-radius:2px; }
+  #log { font-size:var(--logfs, 12px); touch-action:pan-x pan-y; }
+  #zoomtip { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:3; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:8px 14px; font:600 14px system-ui,sans-serif; pointer-events:none; opacity:0; transition:opacity .2s; }
+  #zoomtip.show { opacity:.95; }
   #menu { display:none; }
   #shade { display:none; }
+  #bar { position:relative; }
+  #bar input { order:1; }
+  #count { order:2; }
+  #opts { order:3; display:inline-flex; align-items:center; gap:6px; }
+  #opts svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+  #opts svg circle { fill:var(--bg); }
+  body.sheet #opts { border-color:var(--acc); color:var(--acc); }
+  #tools { position:absolute; top:calc(100% + 6px); right:8px; width:380px; z-index:8; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 14px 14px; display:none; grid-template-columns:1fr 1fr; gap:10px; box-shadow:0 12px 32px rgba(0,0,0,.35); }
+  body.sheet #tools { display:grid; }
+  body.sheet #sheetshade { display:block; position:fixed; inset:0; z-index:7; }
+  #sheetshade { display:none; }
+  #sheethead { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; font-weight:700; padding:2px 0; }
+  #bar #optsclose { border:0; background:none; padding:4px 8px; color:var(--mute); }
+  .opt { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
+  #bar .opt select { width:100%; }
+  #bar #tools button { width:100%; }
+  .zoomopt { grid-column:1 / -1; }
+  .zoom { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  #bar .zoom button { font-weight:700; }
   @media (max-width:700px) {
     body { font-size:15px; }
     #side { position:fixed; top:0; bottom:0; left:0; width:min(320px,85vw); z-index:6; transform:translateX(-100%); transition:transform .2s; box-shadow:0 0 24px rgba(0,0,0,.4); }
@@ -81,32 +103,14 @@
     #title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     #count { order:11; flex-basis:100%; padding:0 2px; }
     #count:empty { display:none; }
-    #opts { display:inline-flex; align-items:center; gap:6px; }
-    #tools { position:fixed; left:0; right:0; bottom:0; z-index:8; background:var(--panel); border-top:1px solid var(--line); border-radius:16px 16px 0 0; padding:8px 16px calc(16px + env(safe-area-inset-bottom)); display:grid; grid-template-columns:1fr 1fr; gap:10px; transform:translateY(105%); transition:transform .22s ease; box-shadow:0 -8px 30px rgba(0,0,0,.35); max-height:80dvh; overflow:auto; }
+    #tools { position:fixed; top:auto; left:0; right:0; bottom:0; width:auto; border-width:1px 0 0; border-radius:16px 16px 0 0; padding:8px 16px calc(16px + env(safe-area-inset-bottom)); display:grid; transform:translateY(105%); transition:transform .22s ease; box-shadow:0 -8px 30px rgba(0,0,0,.35); max-height:80dvh; overflow:auto; }
     body.sheet #tools { transform:none; }
-    body.sheet #sheetshade { display:block; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:7; }
-    #sheethead { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; font-weight:700; padding:4px 0; }
+    body.sheet #sheetshade { background:rgba(0,0,0,.45); }
+    #sheethead { padding:4px 0; }
     #sheethead::before { content:''; position:absolute; top:6px; left:50%; width:40px; height:4px; margin-left:-20px; border-radius:2px; background:var(--line); }
-    #bar #optsclose { border:0; background:none; min-height:0; padding:6px 8px; color:var(--mute); }
-    .opt { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
-    .opt span { display:block; }
-    #bar .opt select { width:100%; }
-    #bar #tools button { width:100%; }
-    #log { font-size:11.5px; }
+    #bar #optsclose { min-height:0; padding:6px 8px; }
     .ln { padding:0 8px; }
     .ts-date, .ts-frac { display:none; }
-  }
-  #tools { display:contents; }
-  .opt { display:contents; }
-  .opt span, #sheethead, #opts, #sheetshade { display:none; }
-  #opts svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
-  #opts svg circle { fill:var(--bg); }
-  @media (max-width:700px) {
-    #tools { display:grid; }
-    .opt { display:flex; }
-    .opt span { display:block; }
-    #sheethead { display:flex; }
-    #opts { display:inline-flex; }
   }
 </style>
 </head>
@@ -125,6 +129,7 @@
       <label class="opt"><span>Order</span><select id="order" title="Log order"><option value="top">Newest on top</option><option value="bottom">Newest at bottom</option></select></label>
       <label class="opt"><span>Level</span><select id="level" title="Minimum level"><option value="">All levels</option><option value="error">Errors</option><option value="warn">Warnings+</option><option value="info">Info+</option></select></label>
       <label class="opt"><span>Theme</span><select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select></label>
+      <div class="opt zoomopt"><span>Text size</span><div class="zoom"><button id="zout" aria-label="Smaller text">A−</button><button id="zreset" title="Reset text size">100%</button><button id="zin" aria-label="Larger text">A+</button></div></div>
       <button id="color" class="on">Colors</button>
       <button id="wrap">Wrap</button>
       <button id="clear">Clear</button>
@@ -133,7 +138,7 @@
     <span id="count"></span>
   </div>
   <div id="sheetshade"></div>
-  <div id="logwrap"><div id="log"></div><button id="newer" hidden></button></div>
+  <div id="logwrap"><div id="log"></div><button id="newer" hidden></button><div id="zoomtip"></div></div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -497,6 +502,62 @@ $('color').onclick = () => { colors = !colors; store.set('colors', colors ? '1' 
 if (store.get('wrap', matchMedia('(max-width:700px)').matches ? '1' : '0') === '1') { logEl.classList.add('wrap'); $('wrap').classList.add('on'); }
 $('wrap').onclick = () => { const on = logEl.classList.toggle('wrap'); $('wrap').classList.toggle('on', on); store.set('wrap', on ? '1' : '0'); };
 $('newer').onclick = rebuild;
+
+const BASE_FS = 12, MIN_FS = 7, MAX_FS = 28;
+let logFs = parseFloat(store.get('fontsize', String(BASE_FS))) || BASE_FS;
+let tipTimer = null;
+
+function setFontSize(px, cx, cy, save = true) {
+  px = Math.round(Math.min(MAX_FS, Math.max(MIN_FS, px)) * 10) / 10;
+  if (px === logFs) return;
+  const ratio = px / logFs;
+  const r = logEl.getBoundingClientRect();
+  const ox = cx === undefined ? 0 : cx - r.left;
+  const oy = cy === undefined ? 0 : cy - r.top;
+  const sx = logEl.scrollLeft, sy = logEl.scrollTop;
+  logFs = px;
+  logEl.style.setProperty('--logfs', px + 'px');
+  logEl.scrollTop = (sy + oy) * ratio - oy;
+  logEl.scrollLeft = (sx + ox) * ratio - ox;
+  const pct = Math.round((px / BASE_FS) * 100) + '%';
+  $('zreset').textContent = pct;
+  $('zoomtip').textContent = pct;
+  $('zoomtip').classList.add('show');
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => $('zoomtip').classList.remove('show'), 700);
+  if (save) store.set('fontsize', String(px));
+}
+
+logEl.style.setProperty('--logfs', logFs + 'px');
+$('zreset').textContent = Math.round((logFs / BASE_FS) * 100) + '%';
+$('zin').onclick = () => setFontSize(logFs + 1);
+$('zout').onclick = () => setFontSize(logFs - 1);
+$('zreset').onclick = () => setFontSize(BASE_FS);
+
+let pinch = null, pinchFrame = 0;
+const touchDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+logEl.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) pinch = { d: touchDist(e.touches), fs: logFs };
+}, { passive: true });
+logEl.addEventListener('touchmove', (e) => {
+  if (!pinch || e.touches.length !== 2) return;
+  e.preventDefault();
+  const t = e.touches;
+  const target = pinch.fs * (touchDist(t) / pinch.d);
+  const cx = (t[0].clientX + t[1].clientX) / 2, cy = (t[0].clientY + t[1].clientY) / 2;
+  cancelAnimationFrame(pinchFrame);
+  pinchFrame = requestAnimationFrame(() => setFontSize(target, cx, cy, false));
+}, { passive: false });
+logEl.addEventListener('touchend', (e) => {
+  if (pinch && e.touches.length < 2) { pinch = null; store.set('fontsize', String(logFs)); }
+});
+logEl.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  setFontSize(logFs * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY);
+}, { passive: false });
+logEl.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('sheet'); });
 $('order').onchange = () => setOrder($('order').value);
 setOrder(order);
 const sheet = (on) => document.body.classList.toggle('sheet', on);

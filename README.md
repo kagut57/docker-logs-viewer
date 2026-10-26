@@ -85,7 +85,9 @@ git pull && sudo bash start.sh
 - Choose newest on top or newest at bottom; older lines load as you scroll (only a few hundred rows are drawn at a time, so even "all" stays smooth)
 - A "new lines" button appears when new logs arrive while you are scrolled down
 - Wrap, clear, and download the loaded logs
-- Mobile layout with a slide-out container list and an Options sheet for all settings
+- All settings in one Options panel (a dropdown on PC, a bottom sheet on phones)
+- Zoom only the log text: pinch with two fingers on phones, Ctrl + mouse wheel or the A− / A+ buttons on PC. The rest of the page keeps its size
+- Mobile layout with a slide-out container list
 
 ## Security
 

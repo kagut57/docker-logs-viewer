@@ -48,6 +48,7 @@
   #logwrap { flex:1; min-height:0; position:relative; display:flex; }
   #newer { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:2; background:var(--acc); color:var(--bg); border:0; border-radius:999px; padding:6px 14px; font:600 12px system-ui,sans-serif; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.35); }
   #newer[hidden] { display:none; }
+  #logwrap.asc #newer { top:auto; bottom:14px; }
   #log { flex:1; min-width:0; overflow:auto; overflow-anchor:none; -webkit-overflow-scrolling:touch; padding:8px 0; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; }
   #log.wrap { white-space:pre-wrap; word-break:break-all; }
   .ln { padding:0 12px; border-left:3px solid transparent; }
@@ -80,15 +81,33 @@
     #title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     #count { order:11; flex-basis:100%; padding:0 2px; }
     #count:empty { display:none; }
-    #tools { order:9; display:flex; gap:6px; overflow-x:auto; flex:1 1 100%; scrollbar-width:none; }
-    #tools::-webkit-scrollbar { display:none; }
-    #tools > * { flex-shrink:0; }
+    #opts { display:inline-flex; align-items:center; gap:6px; }
+    #tools { position:fixed; left:0; right:0; bottom:0; z-index:8; background:var(--panel); border-top:1px solid var(--line); border-radius:16px 16px 0 0; padding:8px 16px calc(16px + env(safe-area-inset-bottom)); display:grid; grid-template-columns:1fr 1fr; gap:10px; transform:translateY(105%); transition:transform .22s ease; box-shadow:0 -8px 30px rgba(0,0,0,.35); max-height:80dvh; overflow:auto; }
+    body.sheet #tools { transform:none; }
+    body.sheet #sheetshade { display:block; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:7; }
+    #sheethead { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; font-weight:700; padding:4px 0; }
+    #sheethead::before { content:''; position:absolute; top:6px; left:50%; width:40px; height:4px; margin-left:-20px; border-radius:2px; background:var(--line); }
+    #bar #optsclose { border:0; background:none; min-height:0; padding:6px 8px; color:var(--mute); }
+    .opt { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--mute); }
+    .opt span { display:block; }
+    #bar .opt select { width:100%; }
+    #bar #tools button { width:100%; }
     #log { font-size:11.5px; }
     .ln { padding:0 8px; }
     .ts-date, .ts-frac { display:none; }
   }
   #tools { display:contents; }
-  @media (max-width:700px) { #tools { display:flex; } }
+  .opt { display:contents; }
+  .opt span, #sheethead, #opts, #sheetshade { display:none; }
+  #opts svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+  #opts svg circle { fill:var(--bg); }
+  @media (max-width:700px) {
+    #tools { display:grid; }
+    .opt { display:flex; }
+    .opt span { display:block; }
+    #sheethead { display:flex; }
+    #opts { display:inline-flex; }
+  }
 </style>
 </head>
 <body>
@@ -98,11 +117,14 @@
   <div id="bar">
     <button id="menu" aria-label="Containers">☰</button>
     <span id="title">Select a container</span>
+    <button id="opts" aria-label="Options"><svg viewBox="0 0 24 24"><path d="M3 6h11M18 6h3M3 12h3M10 12h11M3 18h11M18 18h3"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>Options</button>
     <input id="q" placeholder="Filter logs…" type="search" autocomplete="off">
     <div id="tools">
-      <select id="tail" title="Lines to load"><option>100</option><option selected>200</option><option>1000</option><option>5000</option><option>20000</option><option value="all">all</option></select>
-      <select id="level" title="Minimum level"><option value="">All levels</option><option value="error">Errors</option><option value="warn">Warnings+</option><option value="info">Info+</option></select>
-      <select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select>
+      <div id="sheethead"><span>Options</span><button id="optsclose" aria-label="Close">✕</button></div>
+      <label class="opt"><span>Lines</span><select id="tail" title="Lines to load"><option>100</option><option selected>200</option><option>1000</option><option>5000</option><option>20000</option><option value="all">all</option></select></label>
+      <label class="opt"><span>Order</span><select id="order" title="Log order"><option value="top">Newest on top</option><option value="bottom">Newest at bottom</option></select></label>
+      <label class="opt"><span>Level</span><select id="level" title="Minimum level"><option value="">All levels</option><option value="error">Errors</option><option value="warn">Warnings+</option><option value="info">Info+</option></select></label>
+      <label class="opt"><span>Theme</span><select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select></label>
       <button id="color" class="on">Colors</button>
       <button id="wrap">Wrap</button>
       <button id="clear">Clear</button>
@@ -110,6 +132,7 @@
     </div>
     <span id="count"></span>
   </div>
+  <div id="sheetshade"></div>
   <div id="logwrap"><div id="log"></div><button id="newer" hidden></button></div>
 </div>
 <script>
@@ -316,7 +339,11 @@ const PAGE = 300;
 const DOM_CAP = 1500;
 let seq = 0, cursor = 0, unseen = 0;
 
-const atTop = () => logEl.scrollTop < 8;
+let order = store.get('order', 'top');
+const newestTop = () => order === 'top';
+const atEdge = () => (newestTop() ? logEl.scrollTop < 8 : logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 8);
+const nearOldEnd = () => (newestTop() ? logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 600 : logEl.scrollTop < 600);
+const toEdge = () => { logEl.scrollTop = newestTop() ? 0 : logEl.scrollHeight; };
 const baseSeq = () => (lines.length ? lines[0].seq : seq);
 
 function trim() {
@@ -334,31 +361,53 @@ function renderEl(it) {
 }
 
 function appendOlder(n) {
-  const frag = document.createDocumentFragment();
-  let i = cursor - baseSeq() - 1, added = 0;
-  for (; i >= 0 && added < n; i--) if (renderEl(lines[i])) { frag.appendChild(lines[i].el); added++; }
+  const els = [];
+  let i = cursor - baseSeq() - 1;
+  for (; i >= 0 && els.length < n; i--) if (renderEl(lines[i])) els.push(lines[i].el);
   cursor = baseSeq() + i + 1;
-  logEl.appendChild(frag);
+  if (!els.length) return;
+  if (newestTop()) {
+    logEl.append(...els);
+  } else {
+    const before = logEl.scrollHeight;
+    logEl.prepend(...els.reverse());
+    logEl.scrollTop += logEl.scrollHeight - before;
+  }
+}
+
+function addNewest(els) {
+  if (newestTop()) logEl.prepend(...els.reverse());
+  else logEl.append(...els);
 }
 
 function capDom() {
   if (logEl.childElementCount <= DOM_CAP) return;
-  while (logEl.childElementCount > DOM_CAP - PAGE) logEl.lastElementChild.remove();
-  cursor = logEl.lastElementChild._seq;
+  const oldEnd = () => (newestTop() ? logEl.lastElementChild : logEl.firstElementChild);
+  while (logEl.childElementCount > DOM_CAP - PAGE) oldEnd().remove();
+  cursor = oldEnd()._seq;
 }
 
 function setUnseen(n) {
   unseen = n;
   $('newer').hidden = !n;
-  $('newer').textContent = `↑ ${n.toLocaleString()} new line${n === 1 ? '' : 's'}`;
+  $('newer').textContent = `${newestTop() ? '↑' : '↓'} ${n.toLocaleString()} new line${n === 1 ? '' : 's'}`;
 }
 
 function rebuild() {
   logEl.textContent = '';
   cursor = seq;
   appendOlder(PAGE);
-  logEl.scrollTop = 0;
+  while (cursor > baseSeq() && logEl.scrollHeight < logEl.clientHeight + 600) appendOlder(PAGE);
+  toEdge();
   setUnseen(0);
+}
+
+function setOrder(o) {
+  order = o === 'bottom' ? 'bottom' : 'top';
+  $('order').value = order;
+  store.set('order', order);
+  logEl.parentElement.classList.toggle('asc', !newestTop());
+  rebuild();
 }
 
 function schedule() {
@@ -382,15 +431,16 @@ function flush() {
   }
   trim();
   updateCount();
-  if (!atTop()) {
+  if (!atEdge()) {
     setUnseen(unseen + items.filter(visible).length);
     return;
   }
   if (items.length >= PAGE || unseen) { rebuild(); return; }
-  const frag = document.createDocumentFragment();
-  for (let i = items.length - 1; i >= 0; i--) if (items[i].seq >= baseSeq() && renderEl(items[i])) frag.appendChild(items[i].el);
-  logEl.prepend(frag);
+  const els = [];
+  for (const it of items) if (it.seq >= baseSeq() && renderEl(it)) els.push(it.el);
+  if (els.length) addNewest(els);
   capDom();
+  toEdge();
 }
 
 function add(item) {
@@ -407,8 +457,8 @@ function reset() {
 }
 
 logEl.addEventListener('scroll', () => {
-  if (unseen && atTop()) rebuild();
-  else if (cursor > baseSeq() && logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 600) appendOlder(PAGE);
+  if (unseen && atEdge()) rebuild();
+  else if (cursor > baseSeq() && nearOldEnd()) appendOlder(PAGE);
 }, { passive: true });
 
 function select(name) {
@@ -447,6 +497,14 @@ $('color').onclick = () => { colors = !colors; store.set('colors', colors ? '1' 
 if (store.get('wrap', matchMedia('(max-width:700px)').matches ? '1' : '0') === '1') { logEl.classList.add('wrap'); $('wrap').classList.add('on'); }
 $('wrap').onclick = () => { const on = logEl.classList.toggle('wrap'); $('wrap').classList.toggle('on', on); store.set('wrap', on ? '1' : '0'); };
 $('newer').onclick = rebuild;
+$('order').onchange = () => setOrder($('order').value);
+setOrder(order);
+const sheet = (on) => document.body.classList.toggle('sheet', on);
+$('opts').onclick = () => sheet(true);
+$('optsclose').onclick = () => sheet(false);
+$('sheetshade').onclick = () => sheet(false);
+$('dl').addEventListener('click', () => sheet(false));
+$('clear').addEventListener('click', () => sheet(false));
 $('clear').onclick = reset;
 $('menu').onclick = () => $('side').classList.toggle('open');
 $('shade').onclick = () => $('side').classList.remove('open');

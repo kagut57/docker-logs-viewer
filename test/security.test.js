@@ -12,7 +12,7 @@ const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); }
 
 function start(port, env) {
   return new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, ['-r', FAKE, path.join(APP, 'server.js')], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', FAKE_LOG: LOG, ...env } });
+    const p = spawn(process.execPath, ['-r', FAKE, path.join(APP, 'server.js')], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', FAKE_LOG: LOG, SETTINGS_FILE: path.join(require('os').tmpdir(), `dlv-settings-${port}.json`), ...env } });
     let out = '';
     p.stdout.on('data', (d) => { out += d; if (out.includes('Docker logs viewer on')) resolve({ p, out: () => out }); });
     p.stderr.on('data', (d) => { out += d; });
@@ -30,7 +30,7 @@ function req(port, opts = {}) {
     });
     r.on('error', (e) => resolve({ status: 0, error: e.message }));
     if (opts.timeout) r.setTimeout(opts.timeout, () => r.destroy());
-    r.end();
+    r.end(opts.body);
   });
 }
 
@@ -129,6 +129,17 @@ function rawReq(port, text) {
   check('Actions: a second action on the same container while busy gets 409', second.status === 409, `status ${second.status}`);
   const calls = fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   check('Actions: docker called as ["restart","--",name] without a shell', calls.length === 1 && JSON.stringify(calls[0]) === '["restart","--","web"]', JSON.stringify(calls));
+  const setPost = (body, headers = H) => req(A, { method: 'POST', path: '/api/settings', headers: { ...headers, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, body });
+  const goodSet = await setPost(JSON.stringify({ theme: 'white', fontsize: 14 }));
+  check('Settings: same-origin save works and is shared', goodSet.status === 200 && JSON.parse((await req(A, { path: '/api/settings' })).body).theme === 'white', `status ${goodSet.status}`);
+  const csrfSet = await setPost(JSON.stringify({ theme: 'black' }), { Origin: 'https://evil.example', 'X-DLV-Action': '1' });
+  const noHdrSet = await setPost(JSON.stringify({ theme: 'black' }), {});
+  check('Settings: other websites cannot change settings (CSRF)', csrfSet.status === 403 && noHdrSet.status === 403, `${csrfSet.status}/${noHdrSet.status}`);
+  await setPost('{"theme":"<script>x</script>","fontsize":9999,"tail":"1; id","evil":"x","__proto__":{"polluted":1}}');
+  const stored = JSON.parse((await req(A, { path: '/api/settings' })).body);
+  check('Settings: invalid values and unknown keys are ignored', stored.theme === 'white' && stored.fontsize === 14 && !('tail' in stored) && !('evil' in stored) && !('polluted' in stored), JSON.stringify(stored));
+  const huge = await setPost(JSON.stringify({ theme: 'x'.repeat(10000) }));
+  check('Settings: oversized body is refused', huge.status !== 200, `status ${huge.status}`);
   const fail = await act('/api/containers/broken/stop', { headers: H });
   check('Actions: docker errors are reported cleanly', fail.status === 500 && /No such container/.test(JSON.parse(fail.body).error), fail.body);
   s1.p.kill();

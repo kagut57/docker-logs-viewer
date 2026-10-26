@@ -82,12 +82,12 @@ git pull && sudo bash start.sh
 - Live log stream with timestamps. Pick 100 / 200 / 1000 / 5000 / 20000 / **all** lines of history
 - Level colouring (ERROR / WARN / INFO / DEBUG), ANSI colour support, and highlighting for HTTP methods, status codes, URLs, numbers and `key=value` pairs
 - Filter box with match highlighting, plus a minimum-level filter
-- Dark, black (AMOLED) and white themes, saved per browser
+- Dark, black (AMOLED) and white themes
 - Newest logs at the bottom by default (switch to newest on top in Options); older lines load as you scroll (only a few hundred rows are drawn at a time, so even "all" stays smooth)
 - A "new lines" button appears when new logs arrive while you are scrolled down
 - Restart, stop and start the selected container from Options, with an "Are you sure?" confirmation for restart and stop
 - Wrap, clear, and download the loaded logs
-- All settings in one Options panel (a dropdown on PC, a bottom sheet on phones)
+- All settings in one Options panel (a dropdown on PC, a bottom sheet on phones). Settings are saved on the server (`data/settings.json`), so every container, browser and device uses the same ones
 - Zoom only the log text: pinch with two fingers on phones, Ctrl + mouse wheel or the A− / A+ buttons on PC. The rest of the page keeps its size
 - Mobile layout with a slide-out container list
 
@@ -113,4 +113,4 @@ It still runs as root to reach the Docker socket, so don't expose it publicly wi
 
 ### Security test
 
-`npm test` runs 58 checks against a fake Docker (no real containers needed): auth on/off, IP allowlist and spoofed headers, path traversal, command/flag injection, write methods, security headers, CSP, the stream-flood limit, and container-action protections (CSRF, cross-site, GET triggering, injection, busy lock, ACTIONS=false).
+`npm test` runs 62 checks against a fake Docker (no real containers needed): auth on/off, IP allowlist and spoofed headers, path traversal, command/flag injection, write methods, security headers, CSP, the stream-flood limit, and container-action protections (CSRF, cross-site, GET triggering, injection, busy lock, ACTIONS=false) and settings validation.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Docker Logs</title>
-<script>try { document.documentElement.dataset.theme = localStorage.getItem('dlv-theme') || 'dark'; } catch (e) {}</script>
+<script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('dlv-prefs') || '{}').theme || 'dark'; } catch (e) {}</script>
 <style>
   :root, [data-theme="dark"] {
     --bg:#0d1117; --panel:#161b22; --hover:#1c232c; --sel:#1f2a37; --line:#30363d; --fg:#e6edf3; --mute:#8b949e; --acc:#58a6ff;
@@ -184,14 +184,56 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
-const store = {
-  get(k, d) { try { const v = localStorage.getItem('dlv-' + k); return v === null ? d : v; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('dlv-' + k, v); } catch (e) {} },
-};
+const DEFAULTS = { theme: 'dark', order: 'bottom', tail: '200', level: '', colors: true, wrap: false, fontsize: 12 };
+const readCache = () => { try { return JSON.parse(localStorage.getItem('dlv-prefs') || '{}'); } catch (e) { return {}; } };
+let prefs = { ...DEFAULTS, ...readCache() };
+const writeCache = () => { try { localStorage.setItem('dlv-prefs', JSON.stringify(prefs)); } catch (e) {} };
+let saveQueue = {}, saveTimer = null;
+
+function update(changes) {
+  applyPrefs(changes);
+  Object.assign(saveQueue, changes);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const body = JSON.stringify(saveQueue);
+    saveQueue = {};
+    fetch('/api/settings', { method: 'POST', headers: { 'X-DLV-Action': '1', 'Content-Type': 'application/json' }, body }).catch(() => {});
+  }, 300);
+}
+
+function applyPrefs(changes) {
+  const prev = prefs;
+  prefs = { ...DEFAULTS, ...prefs, ...changes };
+  writeCache();
+  document.documentElement.dataset.theme = prefs.theme;
+  $('theme').value = prefs.theme;
+  $('tail').value = prefs.tail;
+  $('level').value = prefs.level;
+  $('order').value = prefs.order;
+  minLevel = prefs.level;
+  colors = prefs.colors;
+  $('color').classList.toggle('on', colors);
+  logEl.classList.toggle('wrap', prefs.wrap);
+  $('wrap').classList.toggle('on', prefs.wrap);
+  setFontSize(prefs.fontsize, undefined, undefined, false, false);
+  order = prefs.order;
+  logEl.parentElement.classList.toggle('asc', !newestTop());
+  if (prev.tail !== prefs.tail && current) select(current);
+  else if (prev.level !== prefs.level || prev.colors !== prefs.colors || prev.order !== prefs.order) rebuild();
+}
+
+function syncPrefs() {
+  fetch('/api/settings').then((r) => r.json()).then((s) => {
+    const diff = {};
+    for (const k in s) if (s[k] !== prefs[k]) diff[k] = s[k];
+    if (Object.keys(diff).length) applyPrefs(diff);
+  }).catch(() => {});
+}
+
 let MAX = 100000;
 let current = null, es = null, lines = [], pending = [], scheduled = false, query = '', listKey = '';
-let colors = store.get('colors', '1') === '1';
-let minLevel = store.get('level', '');
+let colors = prefs.colors;
+let minLevel = prefs.level;
 
 let actionsOn = false, actionBusy = false;
 const states = {};
@@ -395,7 +437,7 @@ const PAGE = 300;
 const DOM_CAP = 1500;
 let seq = 0, cursor = 0, unseen = 0;
 
-let order = store.get('logorder', 'bottom');
+let order = prefs.order;
 const newestTop = () => order === 'top';
 const atEdge = () => (newestTop() ? logEl.scrollTop < 8 : logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 8);
 const nearOldEnd = () => (newestTop() ? logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 600 : logEl.scrollTop < 600);
@@ -456,14 +498,6 @@ function rebuild() {
   while (cursor > baseSeq() && logEl.scrollHeight < logEl.clientHeight + 600) appendOlder(PAGE);
   toEdge();
   setUnseen(0);
-}
-
-function setOrder(o) {
-  order = o === 'top' ? 'top' : 'bottom';
-  $('order').value = order;
-  store.set('logorder', order);
-  logEl.parentElement.classList.toggle('asc', !newestTop());
-  rebuild();
 }
 
 function schedule() {
@@ -531,34 +565,24 @@ function select(name) {
   loadList();
 }
 
-function setTheme(t) {
-  document.documentElement.dataset.theme = t;
-  $('theme').value = t;
-  store.set('theme', t);
-}
-
 let qTimer = null;
 $('q').oninput = () => {
   clearTimeout(qTimer);
   qTimer = setTimeout(() => { query = $('q').value.toLowerCase(); redraw(); }, 150);
 };
-$('tail').value = store.get('tail', '200');
-$('tail').onchange = () => { store.set('tail', $('tail').value); if (current) select(current); };
-$('level').value = minLevel;
-$('level').onchange = () => { minLevel = $('level').value; store.set('level', minLevel); redraw(); };
-setTheme(document.documentElement.dataset.theme);
-$('theme').onchange = () => setTheme($('theme').value);
-$('color').classList.toggle('on', colors);
-$('color').onclick = () => { colors = !colors; store.set('colors', colors ? '1' : '0'); $('color').classList.toggle('on', colors); redraw(); };
-if (store.get('wrap', matchMedia('(max-width:700px)').matches ? '1' : '0') === '1') { logEl.classList.add('wrap'); $('wrap').classList.add('on'); }
-$('wrap').onclick = () => { const on = logEl.classList.toggle('wrap'); $('wrap').classList.toggle('on', on); store.set('wrap', on ? '1' : '0'); };
+$('tail').onchange = () => update({ tail: $('tail').value });
+$('level').onchange = () => update({ level: $('level').value });
+$('theme').onchange = () => update({ theme: $('theme').value });
+$('order').onchange = () => update({ order: $('order').value });
+$('color').onclick = () => update({ colors: !prefs.colors });
+$('wrap').onclick = () => update({ wrap: !prefs.wrap });
 $('newer').onclick = rebuild;
 
 const BASE_FS = 12, MIN_FS = 7, MAX_FS = 28;
-let logFs = parseFloat(store.get('fontsize', String(BASE_FS))) || BASE_FS;
+let logFs = BASE_FS;
 let tipTimer = null;
 
-function setFontSize(px, cx, cy, save = true) {
+function setFontSize(px, cx, cy, save = true, tip = true) {
   px = Math.round(Math.min(MAX_FS, Math.max(MIN_FS, px)) * 10) / 10;
   if (px === logFs) return;
   const ratio = px / logFs;
@@ -572,15 +596,16 @@ function setFontSize(px, cx, cy, save = true) {
   logEl.scrollLeft = (sx + ox) * ratio - ox;
   const pct = Math.round((px / BASE_FS) * 100) + '%';
   $('zreset').textContent = pct;
-  $('zoomtip').textContent = pct;
-  $('zoomtip').classList.add('show');
-  clearTimeout(tipTimer);
-  tipTimer = setTimeout(() => $('zoomtip').classList.remove('show'), 700);
-  if (save) store.set('fontsize', String(px));
+  if (tip) {
+    $('zoomtip').textContent = pct;
+    $('zoomtip').classList.add('show');
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => $('zoomtip').classList.remove('show'), 700);
+  }
+  if (save) update({ fontsize: px });
 }
 
 logEl.style.setProperty('--logfs', logFs + 'px');
-$('zreset').textContent = Math.round((logFs / BASE_FS) * 100) + '%';
 $('zin').onclick = () => setFontSize(logFs + 1);
 $('zout').onclick = () => setFontSize(logFs - 1);
 $('zreset').onclick = () => setFontSize(BASE_FS);
@@ -600,7 +625,7 @@ logEl.addEventListener('touchmove', (e) => {
   pinchFrame = requestAnimationFrame(() => setFontSize(target, cx, cy, false));
 }, { passive: false });
 logEl.addEventListener('touchend', (e) => {
-  if (pinch && e.touches.length < 2) { pinch = null; store.set('fontsize', String(logFs)); }
+  if (pinch && e.touches.length < 2) { pinch = null; update({ fontsize: logFs }); }
 });
 logEl.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
@@ -694,8 +719,9 @@ document.addEventListener('keydown', (e) => {
   if (!$('modal').hidden) closeModal(false);
   else document.body.classList.remove('sheet');
 });
-$('order').onchange = () => setOrder($('order').value);
-setOrder(order);
+applyPrefs({});
+syncPrefs();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPrefs(); });
 const sheet = (on) => document.body.classList.toggle('sheet', on);
 $('opts').onclick = () => sheet(true);
 $('optsclose').onclick = () => sheet(false);

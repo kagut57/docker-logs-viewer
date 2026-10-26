@@ -173,6 +173,49 @@ function streamLogs(req, res, name, tail) {
   });
 }
 
+const SETTINGS_FILE = process.env.SETTINGS_FILE || path.join(__dirname, 'data', 'settings.json');
+const SETTING_RULES = {
+  theme: (v) => ['dark', 'black', 'white'].includes(v),
+  order: (v) => ['top', 'bottom'].includes(v),
+  tail: (v) => v === 'all' || /^\d{1,7}$/.test(v),
+  level: (v) => ['', 'error', 'warn', 'info'].includes(v),
+  colors: (v) => typeof v === 'boolean',
+  wrap: (v) => typeof v === 'boolean',
+  fontsize: (v) => typeof v === 'number' && v >= 7 && v <= 28,
+};
+let settings = {};
+try { settings = cleanSettings(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'))); } catch (e) {}
+
+function cleanSettings(obj) {
+  const out = {};
+  if (obj && typeof obj === 'object') for (const [k, ok] of Object.entries(SETTING_RULES)) if (k in obj && ok(obj[k])) out[k] = obj[k];
+  return out;
+}
+
+function saveSettings(req, res) {
+  if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-site request blocked' });
+  let body = '';
+  req.setEncoding('utf8');
+  req.on('data', (d) => {
+    body += d;
+    if (body.length > 4096) { req.destroy(); }
+  });
+  req.on('end', () => {
+    let incoming;
+    try { incoming = JSON.parse(body); } catch (e) { return json(res, 400, { error: 'bad json' }); }
+    settings = { ...settings, ...cleanSettings(incoming) };
+    try {
+      fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+      const tmp = SETTINGS_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2));
+      fs.renameSync(tmp, SETTINGS_FILE);
+    } catch (e) {
+      return json(res, 500, { error: 'Could not save settings' });
+    }
+    json(res, 200, settings);
+  });
+}
+
 const ACTION_RE = /^\/api\/containers\/([^/]+)\/(start|stop|restart)$/;
 const busy = new Set();
 
@@ -218,6 +261,12 @@ const server = http.createServer((req, res) => {
     let name;
     try { name = decodeURIComponent(action[1]); } catch (e) { return json(res, 400, { error: 'bad name' }); }
     return containerAction(req, res, name, action[2]);
+  }
+
+  if (url.pathname === '/api/settings') {
+    if (req.method === 'POST') return saveSettings(req, res);
+    if (req.method === 'GET' || req.method === 'HEAD') return json(res, 200, settings);
+    return send(res, 405, 'Method not allowed', undefined, { Allow: 'GET, HEAD, POST' });
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', undefined, { Allow: 'GET, HEAD' });

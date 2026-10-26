@@ -32,6 +32,7 @@ Edit `config.env`, then run `sudo bash start.sh` again to apply it.
 | `LOGIN` | `false` | Require a username/password (`AUTH_USER` / `AUTH_PASS`, random if empty) |
 | `ALLOWED_IPS` | empty | Only allow these IPs / CIDR ranges (comma separated) |
 | `MAX_STREAMS` | `20` | Max simultaneous log streams |
+| `ACTIONS` | `true` | Allow start / stop / restart of containers from the UI; `false` = read-only viewer |
 | `DOMAIN` | empty | Custom domain, e.g. `logs.example.com` |
 | `CERTBOT_EMAIL` | empty | Email for Let's Encrypt expiry notices |
 | `DOMAIN_HTTPS` | `true` | Set `false` to serve the domain over plain HTTP |
@@ -82,8 +83,9 @@ git pull && sudo bash start.sh
 - Level colouring (ERROR / WARN / INFO / DEBUG), ANSI colour support, and highlighting for HTTP methods, status codes, URLs, numbers and `key=value` pairs
 - Filter box with match highlighting, plus a minimum-level filter
 - Dark, black (AMOLED) and white themes, saved per browser
-- Choose newest on top or newest at bottom; older lines load as you scroll (only a few hundred rows are drawn at a time, so even "all" stays smooth)
+- Newest logs at the bottom by default (switch to newest on top in Options); older lines load as you scroll (only a few hundred rows are drawn at a time, so even "all" stays smooth)
 - A "new lines" button appears when new logs arrive while you are scrolled down
+- Restart, stop and start the selected container from Options, with an "Are you sure?" confirmation for restart and stop
 - Wrap, clear, and download the loaded logs
 - All settings in one Options panel (a dropdown on PC, a bottom sheet on phones)
 - Zoom only the log text: pinch with two fingers on phones, Ctrl + mouse wheel or the A− / A+ buttons on PC. The rest of the page keeps its size
@@ -91,14 +93,15 @@ git pull && sudo bash start.sh
 
 ## Security
 
-**There is no login by default.** Anyone who has the URL can read the logs of every container, and logs often contain tokens, passwords or database URLs. To restrict access, use one or both of these:
+**There is no login by default.** Anyone who has the URL can read the logs of every container (logs often contain tokens, passwords or database URLs) and, unless `ACTIONS=false`, stop or restart your containers. To restrict access, use one or both of these:
 
 - `ALLOWED_IPS=203.0.113.7,198.51.100.0/24`: only these IPs or ranges can open the site; everyone else gets 403. This also works behind the nginx/domain setup, which checks the real client IP.
 - `LOGIN=true`: asks for a username and password (a random password is generated if `AUTH_PASS` is empty).
 
 Built-in protections:
 
-- Read-only: the app only runs `docker ps` and `docker logs`. Every request except GET/HEAD gets 405.
+- Limited Docker access: the app only runs `docker ps`, `docker logs` and `docker start|stop|restart`. There is no remove, exec or run. Set `ACTIONS=false` for a fully read-only viewer.
+- Container actions only accept POST from the page itself: a custom header plus Origin / Sec-Fetch-Site checks block other websites (CSRF), links and image tags. Only one action runs per container at a time, and each one is logged in `journalctl -u docker-logs-viewer`.
 - Container names are strictly validated and passed to Docker without a shell, so no command or flag injection is possible.
 - Only `/` and `/api/*` are served, so files like `server.js`, `config.env` and `.git` can't be read (no path traversal).
 - Log lines and container names are shown as plain text. A strict Content-Security-Policy allows only the page's own scripts (by hash), so XSS payloads in logs can't run.
@@ -110,4 +113,4 @@ It still runs as root to reach the Docker socket, so don't expose it publicly wi
 
 ### Security test
 
-`npm test` runs 41 checks against a fake Docker (no real containers needed): auth on/off, IP allowlist and spoofed headers, path traversal, command/flag injection, write methods, security headers, CSP and the stream-flood limit.
+`npm test` runs 58 checks against a fake Docker (no real containers needed): auth on/off, IP allowlist and spoofed headers, path traversal, command/flag injection, write methods, security headers, CSP, the stream-flood limit, and container-action protections (CSRF, cross-site, GET triggering, injection, busy lock, ACTIONS=false).

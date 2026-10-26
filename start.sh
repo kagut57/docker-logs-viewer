@@ -48,6 +48,7 @@ load_config() {
   SKIP_DNS_CHECK=${SKIP_DNS_CHECK:-false}
   MAX_LINES=${MAX_LINES:-100000}
   MAX_STREAMS=${MAX_STREAMS:-20}
+  ACTIONS=${ACTIONS:-true}
   LOGIN=${LOGIN:-false}
   ALLOWED_IPS=${ALLOWED_IPS:-}
   HOST=${HOST:-}
@@ -220,6 +221,7 @@ Environment="AUTH_USER=$(systemd_escape "$AUTH_USER")"
 Environment="AUTH_PASS=$(systemd_escape "$AUTH_PASS")"
 Environment="MAX_LINES=$MAX_LINES"
 Environment="MAX_STREAMS=$MAX_STREAMS"
+Environment="ACTIONS=$([ "$ACTIONS" = "false" ] && echo false || echo true)"
 Environment="ALLOWED_IPS=$ALLOWED_IPS"
 Environment="TRUST_PROXY=$([ -n "$DOMAIN" ] && echo true || echo false)"
 NoNewPrivileges=true
@@ -440,7 +442,7 @@ cmd_start() {
   else
     echo "    Login: off (LOGIN=false)"
     if [ -z "$ALLOWED_IPS" ]; then
-      warn "Anyone who knows this URL can read all container logs. Set ALLOWED_IPS or LOGIN=true in config.env to restrict it."
+      warn "Anyone who knows this URL can read all container logs$([ "$ACTIONS" != "false" ] && echo " and stop or restart your containers"). Set ALLOWED_IPS or LOGIN=true in config.env to restrict it."
     else
       echo "    Allowed IPs: $ALLOWED_IPS"
     fi

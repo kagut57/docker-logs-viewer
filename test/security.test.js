@@ -70,7 +70,7 @@ function rawReq(port, text) {
 
   for (const m of ['POST', 'PUT', 'DELETE', 'PATCH']) {
     const r = await req(A, { method: m, path: '/api/containers' });
-    check(`${m} rejected (read-only API)`, r.status === 405, `status ${r.status}`);
+    check(`${m} on /api/containers rejected`, r.status === 405, `status ${r.status}`);
   }
 
   const badNames = ['--help', '-f', '../etc', 'a;rm -rf /', 'a$(id)', 'a`id`', 'a b', 'a|id', 'a&&id', '%0aid', 'x'.repeat(300)];
@@ -101,7 +101,44 @@ function rawReq(port, text) {
 
   const spoof = await req(A, { headers: { 'X-Real-IP': '1.2.3.4', 'X-Forwarded-For': '1.2.3.4' } });
   check('Works normally with spoofed proxy headers', spoof.status === 200);
+
+  const act = (p, opts = {}) => req(A, { method: 'POST', path: p, ...opts });
+  const H = { 'X-DLV-Action': '1', Host: '127.0.0.1:' + A };
+  fs.writeFileSync(LOG, '');
+  const noHeader = await act('/api/containers/web/restart');
+  check('Actions: POST without the app header is rejected (CSRF)', noHeader.status === 403, `status ${noHeader.status}`);
+  const evilOrigin = await act('/api/containers/web/stop', { headers: { ...H, Origin: 'https://evil.example' } });
+  check('Actions: request from another website (Origin) is rejected', evilOrigin.status === 403, `status ${evilOrigin.status}`);
+  const crossSite = await act('/api/containers/web/stop', { headers: { ...H, 'Sec-Fetch-Site': 'cross-site' } });
+  check('Actions: cross-site fetch (Sec-Fetch-Site) is rejected', crossSite.status === 403, `status ${crossSite.status}`);
+  const nullOrigin = await act('/api/containers/web/stop', { headers: { ...H, Origin: 'null' } });
+  check('Actions: sandboxed/null Origin is rejected', nullOrigin.status === 403, `status ${nullOrigin.status}`);
+  const getAct = await req(A, { path: '/api/containers/web/stop', headers: H });
+  check('Actions: GET on an action URL is not allowed (no link/img triggering)', getAct.status === 405, `status ${getAct.status}`);
+  let rejectedCalls = fs.readFileSync(LOG, 'utf8').trim();
+  check('Actions: rejected requests never reach docker', rejectedCalls === '', rejectedCalls);
+  for (const n of ['--all', '-t', 'a%3Bid', '..%2F..', '%00x']) {
+    const r = await act(`/api/containers/${n}/stop`, { headers: H });
+    check(`Actions: bad container name blocked: ${decodeURIComponent(n).replace('\0', '\\0')}`, r.status === 400 || r.status === 404, `status ${r.status}`);
+  }
+  const badAct = await act('/api/containers/web/rm', { headers: H });
+  check('Actions: only start/stop/restart exist (no rm/kill/exec)', badAct.status === 405 || badAct.status === 404, `status ${badAct.status}`);
+  fs.writeFileSync(LOG, '');
+  const [first, second] = await Promise.all([act('/api/containers/web/restart', { headers: H }), new Promise((r) => setTimeout(r, 50)).then(() => act('/api/containers/web/stop', { headers: H }))]);
+  check('Actions: same-origin restart works', first.status === 200 && JSON.parse(first.body).ok === true, `status ${first.status}`);
+  check('Actions: a second action on the same container while busy gets 409', second.status === 409, `status ${second.status}`);
+  const calls = fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  check('Actions: docker called as ["restart","--",name] without a shell', calls.length === 1 && JSON.stringify(calls[0]) === '["restart","--","web"]', JSON.stringify(calls));
+  const fail = await act('/api/containers/broken/stop', { headers: H });
+  check('Actions: docker errors are reported cleanly', fail.status === 500 && /No such container/.test(JSON.parse(fail.body).error), fail.body);
   s1.p.kill();
+
+  const E = 6075;
+  const s5 = await start(E, { ACTIONS: 'false' });
+  const disabled = await req(E, { method: 'POST', path: '/api/containers/web/stop', headers: { 'X-DLV-Action': '1' } });
+  const cfg = JSON.parse((await req(E, { path: '/api/config' })).body);
+  check('ACTIONS=false: actions are refused and hidden in the UI config', disabled.status === 403 && cfg.actions === false, `status ${disabled.status}`);
+  s5.p.kill();
 
   const B = 6072;
   const s2 = await start(B, { ALLOWED_IPS: '10.9.9.9,192.168.50.0/24' });

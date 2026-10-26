@@ -12,6 +12,7 @@ const PASS = process.env.AUTH_PASS || '';
 const MAX_LINES = Math.max(1000, parseInt(process.env.MAX_LINES || '100000', 10) || 100000);
 const MAX_STREAMS = Math.max(1, parseInt(process.env.MAX_STREAMS || '20', 10) || 20);
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+const ACTIONS = process.env.ACTIONS !== 'false';
 const ALLOWED = (process.env.ALLOWED_IPS || '').split(/[\s,]+/).filter(Boolean).map(parseRule);
 
 const INDEX = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
@@ -172,17 +173,58 @@ function streamLogs(req, res, name, tail) {
   });
 }
 
+const ACTION_RE = /^\/api\/containers\/([^/]+)\/(start|stop|restart)$/;
+const busy = new Set();
+
+function sameOrigin(req) {
+  if (req.headers['x-dlv-action'] !== '1') return false;
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin') return false;
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') {
+    try { if (new URL(origin).hostname !== String(req.headers.host || '').replace(/:\d+$/, '')) return false; } catch (e) { return false; }
+  } else if (origin === 'null') return false;
+  return true;
+}
+
+function containerAction(req, res, name, action) {
+  if (!ACTIONS) return json(res, 403, { error: 'Container actions are disabled (ACTIONS=false)' });
+  if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-site request blocked' });
+  if (!NAME_RE.test(name)) return json(res, 400, { error: 'bad name' });
+  if (busy.has(name)) return json(res, 409, { error: `Another action is already running on ${name}` });
+  busy.add(name);
+  req.resume();
+  console.log(`[action] ${action} ${name} from ${clientIp(req)}`);
+  execFile('docker', [action, '--', name], { timeout: 120000 }, (err, out, errOut) => {
+    busy.delete(name);
+    if (err) {
+      const msg = String(errOut || err.message).split('\n').find(Boolean) || 'docker command failed';
+      return json(res, 500, { error: msg.replace(/^Error response from daemon:\s*/, '').slice(0, 300) });
+    }
+    json(res, 200, { ok: true, name, action });
+  });
+}
+
 const server = http.createServer((req, res) => {
   if (!ipAllowed(clientIp(req))) return send(res, 403, 'Forbidden');
   if (!authed(req)) return send(res, 401, 'Unauthorized', undefined, { 'WWW-Authenticate': 'Basic realm="Docker Logs", charset="UTF-8"' });
-  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', undefined, { Allow: 'GET, HEAD' });
 
   let url;
   try { url = new URL(req.url, 'http://localhost'); } catch (e) { return send(res, 400, 'Bad request'); }
 
+  const action = ACTION_RE.exec(url.pathname);
+  if (action) {
+    if (req.method !== 'POST') return send(res, 405, 'Method not allowed', undefined, { Allow: 'POST' });
+    let name;
+    try { name = decodeURIComponent(action[1]); } catch (e) { return json(res, 400, { error: 'bad name' }); }
+    return containerAction(req, res, name, action[2]);
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', undefined, { Allow: 'GET, HEAD' });
+
   if (url.pathname === '/') return send(res, 200, INDEX, 'text/html; charset=utf-8');
 
-  if (url.pathname === '/api/config') return json(res, 200, { maxLines: MAX_LINES });
+  if (url.pathname === '/api/config') return json(res, 200, { maxLines: MAX_LINES, actions: ACTIONS });
 
   if (url.pathname === '/api/containers') {
     return execFile('docker', ['ps', '-a', '--format', '{{json .}}'], { timeout: 10000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => {
@@ -216,4 +258,5 @@ server.listen(PORT, HOST, () => {
   console.log(`Docker logs viewer on ${HOST}:${PORT}`);
   if (!PASS) console.log('Login is disabled: anyone who can reach this port can read all container logs.');
   if (ALLOWED.length) console.log(`Only allowing: ${process.env.ALLOWED_IPS}`);
+  if (ACTIONS && !PASS && !ALLOWED.length) console.log('Container start/stop/restart is enabled with no login or IP allowlist: anyone with the URL can stop your containers.');
 });

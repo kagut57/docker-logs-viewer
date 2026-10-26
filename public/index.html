@@ -89,6 +89,31 @@
   .zoomopt { grid-column:1 / -1; }
   .zoom { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
   #bar .zoom button { font-weight:700; }
+  #ctl { grid-column:1 / -1; border:1px solid var(--line); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:10px; }
+  #ctl[hidden] { display:none; }
+  .ctlhead { display:flex; align-items:center; gap:8px; min-width:0; }
+  .ctlhead b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #ctlstate { color:var(--mute); font-size:12px; margin-left:auto; white-space:nowrap; }
+  .ctlbtns { display:flex; gap:8px; }
+  #bar .ctlbtns button { flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-weight:600; }
+  #bar .ctlbtns button[hidden] { display:none; }
+  .ctlbtns svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+  #bar .ctlbtns button.danger { color:var(--err); }
+  #bar .ctlbtns button.danger:hover { border-color:var(--err); }
+  #bar .ctlbtns button:disabled { opacity:.55; cursor:progress; }
+  #modal { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #modal[hidden] { display:none; }
+  .mbox { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:14px; padding:20px; width:min(400px,100%); box-shadow:0 20px 50px rgba(0,0,0,.45); }
+  .mbox h3 { margin:0 0 8px; font-size:17px; }
+  .mbox p { margin:0 0 18px; color:var(--mute); line-height:1.5; word-break:break-word; }
+  .mbox p b { color:var(--fg); }
+  .mbtns { display:flex; gap:10px; justify-content:flex-end; }
+  .mbtns button { font:inherit; font-weight:600; border-radius:8px; padding:9px 16px; cursor:pointer; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  #mok { background:var(--acc); border-color:var(--acc); color:var(--bg); }
+  #mok.danger { background:var(--err); border-color:var(--err); color:#fff; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); z-index:21; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:10px 16px; font-weight:600; box-shadow:0 10px 30px rgba(0,0,0,.35); opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; max-width:calc(100vw - 32px); }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+  #toast.bad { border-color:var(--err); color:var(--err); }
   @media (max-width:700px) {
     body { font-size:15px; }
     #side { position:fixed; top:0; bottom:0; left:0; width:min(320px,85vw); z-index:6; transform:translateX(-100%); transition:transform .2s; box-shadow:0 0 24px rgba(0,0,0,.4); }
@@ -125,8 +150,16 @@
     <input id="q" placeholder="Filter logs…" type="search" autocomplete="off">
     <div id="tools">
       <div id="sheethead"><span>Options</span><button id="optsclose" aria-label="Close">✕</button></div>
+      <div id="ctl" hidden>
+        <div class="ctlhead"><span class="dot" id="ctldot"></span><b id="ctlname"></b><span id="ctlstate"></span></div>
+        <div class="ctlbtns">
+          <button id="arestart" data-action="restart"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>Restart</button>
+          <button id="astop" data-action="stop" class="danger"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>Stop</button>
+          <button id="astart" data-action="start"><svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>Start</button>
+        </div>
+      </div>
       <label class="opt"><span>Lines</span><select id="tail" title="Lines to load"><option>100</option><option selected>200</option><option>1000</option><option>5000</option><option>20000</option><option value="all">all</option></select></label>
-      <label class="opt"><span>Order</span><select id="order" title="Log order"><option value="top">Newest on top</option><option value="bottom">Newest at bottom</option></select></label>
+      <label class="opt"><span>Order</span><select id="order" title="Log order"><option value="bottom">Newest at bottom</option><option value="top">Newest on top</option></select></label>
       <label class="opt"><span>Level</span><select id="level" title="Minimum level"><option value="">All levels</option><option value="error">Errors</option><option value="warn">Warnings+</option><option value="info">Info+</option></select></label>
       <label class="opt"><span>Theme</span><select id="theme" title="Theme"><option value="dark">Dark</option><option value="black">Black</option><option value="white">White</option></select></label>
       <div class="opt zoomopt"><span>Text size</span><div class="zoom"><button id="zout" aria-label="Smaller text">A−</button><button id="zreset" title="Reset text size">100%</button><button id="zin" aria-label="Larger text">A+</button></div></div>
@@ -139,6 +172,14 @@
   </div>
   <div id="sheetshade"></div>
   <div id="logwrap"><div id="log"></div><button id="newer" hidden></button><div id="zoomtip"></div></div>
+  <div id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="mtitle">
+    <div class="mbox">
+      <h3 id="mtitle"></h3>
+      <p id="mtext"></p>
+      <div class="mbtns"><button id="mcancel">Cancel</button><button id="mok"></button></div>
+    </div>
+  </div>
+  <div id="toast" role="status"></div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -152,13 +193,23 @@ let current = null, es = null, lines = [], pending = [], scheduled = false, quer
 let colors = store.get('colors', '1') === '1';
 let minLevel = store.get('level', '');
 
-fetch('/api/config').then((r) => r.json()).then((c) => { if (c.maxLines) MAX = c.maxLines; }).catch(() => {});
+let actionsOn = false, actionBusy = false;
+const states = {};
+
+fetch('/api/config').then((r) => r.json()).then((c) => {
+  if (c.maxLines) MAX = c.maxLines;
+  actionsOn = !!c.actions;
+  updateCtl();
+}).catch(() => {});
 
 async function loadList() {
   try {
     const r = await fetch('/api/containers');
     const list = await r.json();
     list.sort((a, b) => a.name.localeCompare(b.name));
+    for (const k in states) delete states[k];
+    for (const c of list) states[c.name] = { state: c.state, status: c.status };
+    updateCtl();
     const key = JSON.stringify(list) + '\n' + current;
     if (key === listKey) return;
     listKey = key;
@@ -344,7 +395,7 @@ const PAGE = 300;
 const DOM_CAP = 1500;
 let seq = 0, cursor = 0, unseen = 0;
 
-let order = store.get('order', 'top');
+let order = store.get('logorder', 'bottom');
 const newestTop = () => order === 'top';
 const atEdge = () => (newestTop() ? logEl.scrollTop < 8 : logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 8);
 const nearOldEnd = () => (newestTop() ? logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 600 : logEl.scrollTop < 600);
@@ -408,9 +459,9 @@ function rebuild() {
 }
 
 function setOrder(o) {
-  order = o === 'bottom' ? 'bottom' : 'top';
+  order = o === 'top' ? 'top' : 'bottom';
   $('order').value = order;
-  store.set('order', order);
+  store.set('logorder', order);
   logEl.parentElement.classList.toggle('asc', !newestTop());
   rebuild();
 }
@@ -557,7 +608,92 @@ logEl.addEventListener('wheel', (e) => {
   setFontSize(logFs * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY);
 }, { passive: false });
 logEl.addEventListener('gesturestart', (e) => e.preventDefault());
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('sheet'); });
+
+const ACTION_TEXT = {
+  restart: { verb: 'restart', title: 'Restart container?', ok: 'Restart', busy: 'Restarting…', done: 'restarted', danger: true },
+  stop: { verb: 'stop', title: 'Stop container?', ok: 'Stop', busy: 'Stopping…', done: 'stopped', danger: true },
+  start: { verb: 'start', title: 'Start container?', ok: 'Start', busy: 'Starting…', done: 'started', danger: false },
+};
+
+function updateCtl() {
+  const s = current && states[current];
+  $('ctl').hidden = !actionsOn || !current;
+  if ($('ctl').hidden) return;
+  const state = s ? s.state : 'unknown';
+  const up = state === 'running' || state === 'restarting' || state === 'paused';
+  $('ctlname').textContent = current;
+  $('ctlstate').textContent = s ? s.status : '';
+  $('ctldot').className = 'dot' + (/^[a-z]+$/.test(state) ? ' ' + state : '');
+  $('astop').hidden = !up;
+  $('astart').hidden = up;
+  for (const b of $('ctl').querySelectorAll('button')) b.disabled = actionBusy;
+}
+
+let toastTimer = null;
+function toast(msg, bad) {
+  $('toast').textContent = msg;
+  $('toast').classList.toggle('bad', !!bad);
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), bad ? 5000 : 2500);
+}
+
+let modalResolve = null;
+function confirmBox(title, html, okLabel, danger) {
+  $('mtitle').textContent = title;
+  $('mtext').innerHTML = html;
+  $('mok').textContent = okLabel;
+  $('mok').classList.toggle('danger', danger);
+  $('modal').hidden = false;
+  $('mcancel').focus();
+  return new Promise((resolve) => { modalResolve = resolve; });
+}
+function closeModal(result) {
+  if ($('modal').hidden) return;
+  $('modal').hidden = true;
+  if (modalResolve) { modalResolve(result); modalResolve = null; }
+}
+$('mcancel').onclick = () => closeModal(false);
+$('mok').onclick = () => closeModal(true);
+$('modal').onclick = (e) => { if (e.target === $('modal')) closeModal(false); };
+
+const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function runAction(action) {
+  const name = current;
+  if (!name || actionBusy) return;
+  const t = ACTION_TEXT[action];
+  if (action !== 'start') {
+    const ok = await confirmBox(t.title, `Are you sure you want to ${t.verb} this container <b>${escapeHtml(name)}</b>?`, t.ok, t.danger);
+    if (!ok) return;
+  }
+  actionBusy = true;
+  const btn = $('a' + action);
+  const label = btn.lastChild.textContent;
+  btn.lastChild.textContent = t.busy;
+  updateCtl();
+  try {
+    const r = await fetch(`/api/containers/${encodeURIComponent(name)}/${action}`, { method: 'POST', headers: { 'X-DLV-Action': '1' } });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    toast(`${name} ${t.done}`);
+    if (action !== 'stop' && current === name) setTimeout(() => { if (current === name) select(name); }, 600);
+  } catch (e) {
+    toast(`Could not ${t.verb} ${name}: ${e.message}`, true);
+  } finally {
+    actionBusy = false;
+    btn.lastChild.textContent = label;
+    listKey = '';
+    loadList();
+  }
+}
+for (const b of document.querySelectorAll('#ctl button')) b.onclick = () => runAction(b.dataset.action);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('modal').hidden) closeModal(false);
+  else document.body.classList.remove('sheet');
+});
 $('order').onchange = () => setOrder($('order').value);
 setOrder(order);
 const sheet = (on) => document.body.classList.toggle('sheet', on);

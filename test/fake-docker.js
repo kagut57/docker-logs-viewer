@@ -5,13 +5,26 @@ const { EventEmitter } = require('events');
 
 const record = (args) => { if (process.env.FAKE_LOG) fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify(args) + '\n'); };
 
+const actionStates = {};
 cp.execFile = (cmd, args, opts, cb) => {
   record(args);
+  if (['start', 'stop', 'restart'].includes(args[0])) {
+    const name = args[args.length - 1];
+    return setTimeout(() => {
+      if (name === 'broken') return cb(Object.assign(new Error('exit 1'), { code: 1 }), '', 'Error response from daemon: No such container: broken\n');
+      actionStates[name] = args[0] === 'stop' ? 'exited' : 'running';
+      cb(null, name + '\n', '');
+    }, 300);
+  }
   const rows = [
     { ID: 'a1', Names: 'web', Image: 'nginx:latest', State: 'running', Status: 'Up 3 days' },
     { ID: 'b2', Names: 'api', Image: 'node:20', State: 'running', Status: 'Up 2 hours' },
     { ID: 'c3', Names: '<img src=x onerror="window.__pwned=1">', Image: '<script>window.__pwned=2</script>', State: 'running" onmouseover="window.__pwned=3', Status: '<b>x</b>' },
   ];
+  for (const r of rows) if (actionStates[r.Names]) {
+    r.State = actionStates[r.Names];
+    r.Status = r.State === 'running' ? 'Up 1 second' : 'Exited (0) 1 second ago';
+  }
   setImmediate(() => cb(null, rows.map((r) => JSON.stringify(r)).join('\n') + '\n'));
 };
 
